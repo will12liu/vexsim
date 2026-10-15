@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Titanium Override Sim</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.0/+esm"
+} }
+</script>
+<style>
+  :root { --panel: rgba(16,19,24,.78); --text: #eef2f6; --muted: #9aa6b4; --red: #d9262c; --blue: #1f6fe0; --line: rgba(255,255,255,.08); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #15181d; color: var(--text); font: 13px/1.45 Inter, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; backdrop-filter: blur(10px); box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+  /* Broadcast-style scoreboard */
+  #board { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+  #board .s { font: 800 34px/1 ui-monospace, SFMono-Regular, monospace; min-width: 84px; display: grid; place-items: center; padding: 8px 14px; font-variant-numeric: tabular-nums; }
+  #red { background: linear-gradient(180deg, #e8343a, #b71c22); } #blue { background: linear-gradient(180deg, #2f80f0, #1857b8); }
+  #board .mid { background: rgba(12,14,18,.92); padding: 6px 16px; text-align: center; min-width: 150px; }
+  #clock { font: 800 28px/1.1 ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
+  #mode { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .14em; }
+  #toggles { display: flex; gap: 10px; justify-content: center; font-size: 11px; color: var(--muted); margin-top: 3px; }
+  #hud { top: 12px; left: 12px; width: 300px; }
+  #hud summary { cursor: pointer; font-weight: 700; letter-spacing: .04em; list-style: none; }
+  #hud summary::-webkit-details-marker { display: none; }
+  #hud summary::after { content: "▾"; float: right; color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+  label.f { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); flex: 1 1 120px; }
+  button, select { background: rgba(255,255,255,.06); color: var(--text); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover, select:hover { background: rgba(255,255,255,.12); }
+  button.primary { background: #23863f; border-color: #2fa352; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; margin-left: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+  .dot.red { background: var(--red); } .dot.blue { background: var(--blue); } .dot.yellow { background: #f5c518; }
+  #status { bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--muted); padding: 7px 14px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
+  #auton { top: 12px; right: 12px; width: 380px; max-height: calc(100% - 24px); display: flex; flex-direction: column; }
+  #auton summary { cursor: pointer; font-weight: 700; }
+  #auton textarea { width: 100%; height: 300px; background: #0b0d11; color: #d6e2f0; border: 1px solid var(--line); border-radius: 8px; font: 12px/1.45 ui-monospace, monospace; padding: 8px; resize: vertical; }
+  #log { white-space: pre; font: 11px/1.4 ui-monospace, monospace; color: var(--muted); max-height: 140px; overflow: auto; margin-top: 8px; }
+  #btnHelp { bottom: 12px; right: 12px; left: auto; padding: 8px 14px; font-weight: 600; }
+  kbd { display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 6px; background: #2a313b; border: 1px solid #48525f; border-bottom-width: 3px; font: 600 12px/1.5 ui-monospace, monospace; text-align: center; color: #fff; margin: 1px 2px; }
+  #controls { position: fixed; inset: 0; background: rgba(5,7,10,.72); display: grid; place-items: center; z-index: 10; }
+  #controls[hidden] { display: none; }
+  #controls .sheet { background: #12161c; border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; width: min(860px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; }
+  .sheet h2 { margin: 0; font-size: 20px; } .sheet h3 { margin: 18px 0 6px; font-size: 14px; color: var(--muted); }
+  .sheet table { width: 100%; border-collapse: collapse; }
+  .sheet th { text-align: left; color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .sheet td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .sheet td:first-child { color: #fff; } .sheet td small { color: var(--muted); display: block; }
+  #toast { position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%); font: 800 28px system-ui; background: var(--panel); padding: 10px 18px; border-radius: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; color: var(--muted); }
+  /* Title menu */
+  #menu { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(10,12,16,.35), rgba(5,6,9,.88)); }
+  #menu[hidden] { display: none; }
+  #menu .wrap { width: min(980px, calc(100% - 32px)); text-align: center; }
+  #menu .kicker { color: var(--muted); font-weight: 700; letter-spacing: .32em; font-size: 12px; }
+  #menu h1 { margin: 6px 0 2px; font: 900 clamp(44px, 9vw, 104px)/0.95 system-ui, -apple-system, sans-serif; letter-spacing: -.02em;
+    background: linear-gradient(180deg, #ffffff, #9fb0c4); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: 0 10px 40px rgba(0,0,0,.4); }
+  #menu h1 span { background: linear-gradient(90deg, var(--red), #f5c518 50%, var(--blue)); -webkit-background-clip: text; background-clip: text; }
+  #menu .sub { color: var(--muted); margin-bottom: 30px; font-size: 14px; }
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .mode { text-align: left; padding: 20px 20px 18px; border-radius: 16px; background: rgba(20,24,31,.85); border: 1px solid rgba(255,255,255,.1); transition: transform .12s, border-color .12s, background .12s; }
+  .mode:hover, .mode.sel { transform: translateY(-3px); border-color: #f5c518; background: rgba(30,35,44,.95); }
+  .mode b { display: block; font-size: 20px; margin-bottom: 6px; } .mode small { color: var(--muted); font-size: 13px; line-height: 1.45; display: block; }
+  .mode .k { float: right; color: var(--muted); font: 700 12px ui-monospace, monospace; border: 1px solid #48525f; border-radius: 6px; padding: 1px 7px; }
+  #menu .opts { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 22px; align-items: end; }
+  #menu .opts label.f { flex: 0 0 200px; text-align: left; }
+  #menu .hint { margin-top: 18px; color: var(--muted); font-size: 12px; }
+  body.menu-open #board, body.menu-open #hud, body.menu-open #status, body.menu-open #auton, body.menu-open #btnHelp { display: none; }
+  .tag { position: fixed; transform: translate(-50%, -100%); font: 700 11px system-ui; padding: 2px 7px; border-radius: 6px; pointer-events: none; white-space: nowrap; color: #fff; }
+  .tag.red { background: rgba(214,40,40,.85); } .tag.blue { background: rgba(30,111,217,.85); }
+  @media (max-width: 900px) { #auton { display: none; } #hud { top: auto; bottom: 56px; width: calc(100% - 24px); } #board .s { min-width: 60px; font-size: 26px; } }
+</style>
+</head>
+<body class="menu-open">
+<div id="view"></div>
+<div id="loading">Loading physics…</div>
+<div id="board">
+  <div id="red" class="s">0</div>
+  <div class="mid"><div id="clock">--:--</div><div id="mode">PRACTICE</div><div id="toggles"></div></div>
+  <div id="blue" class="s">0</div>
+</div>
+<div id="hud" class="panel"><details><summary>Match &amp; settings</summary>
+  <div class="row"><button class="primary" id="btnMatch">Restart match (M)</button><button id="btnPractice">Free drive (P)</button><button id="btnReset">Reset (T)</button><button id="btnMenu">Menu (Esc)</button></div>
+  <div class="row"><button id="btnCam">View: driver</button></div>
+  <div class="row">
+    <label class="f">Alliance<select id="alliance"><option value="red">Red</option><option value="blue">Blue</option></select></label>
+    <label class="f">Driver spot<select id="spot"><option value="left">Left</option><option value="centre">Centre</option><option value="right" selected>Right</option></select></label>
+  </div>
+  <div class="row">
+    <label class="f">Start<select id="start"><option value="red1">Red 1 Toggle</option><option value="red2">Red 2 Toggle</option><option value="blue1">Blue 1 Toggle</option><option value="blue2">Blue 2 Toggle</option></select></label>
+    <label class="f">Xbox buttons<select id="layout"><option value="position">Same position as V5</option><option value="letter">Same letters as V5</option></select></label>
+  </div>
+  <div class="row"><label class="muted"><input type="checkbox" id="invY"> Invert drive stick</label><label class="muted"><input type="checkbox" id="invX"> Invert turn stick</label></div>
+  <div class="row"><button id="btnV5">Connect V5 controller (USB)</button></div>
+  <div class="row muted">Input: <span id="source"></span></div>
+  <div class="row muted" id="detail"></div>
+</details></div>
+<div id="status" class="panel"><span id="robot"></span></div>
+<div id="auton" class="panel">
+  <details><summary>Auton routine</summary>
+  <div class="row"><select id="side"><option value="left">LEFT</option><option value="right">RIGHT</option></select><button id="btnAuton">Run auton (D-pad ↓)</button><button id="btnStop">Stop</button></div>
+  <textarea id="routine" spellcheck="false">
+void run_routine() {
+	// ---- 1. Hit the Toggle twice -------------------------------------------
+	drive_time(-50,500);
+	drive_time(127, 900);
+	wait(150);        // hit 1: drive in
+	drive_time(-50, 600);        // back up
+	wait(150);                   // let the Toggle stop moving
+	drive_time(127, 950);        // hit 2: drive in
+	drive_time(-95, 350);        // back off the Toggle a little
+
+	// ---- 2. Go to our goal and score ---------------------------------------                // lift starts rising while we drive
+	turn(mirror(-85), 100);      // turn so the BACK (claw side) faces our goal
+	move(-45, 50);              // reverse toward the goal
+
+	// ---- 3. Score: each step on its own, so you can reorder / retime them --
+                // start the lift rising
+                // wait until it is up
+	claw_out();                  // claw vertical -> horizontal
+	claw_drop();                 // claw spin (A button) to drop the pin
+	claw_up();                   // claw slightly up (B's 2nd press)
+}
+</textarea>
+  <div id="log"></div>
+  </details>
+</div>
+<button id="btnHelp" class="panel">Controls <kbd>?</kbd></button>
+<div id="controls" hidden><div class="sheet">
+  <div class="sheet-head"><h2>Controls</h2><button id="btnHelpClose">Close (Esc)</button></div>
+  <p class="muted">Same mapping as <code>src/opcontrol.cpp</code>. Plug in an Xbox controller (USB or Bluetooth) and press any button, or click <b>Connect V5 controller</b> in Match &amp; settings.</p>
+  <table><thead><tr><th>Action</th><th>V5 controller</th><th>Xbox</th><th>Keyboard</th></tr></thead><tbody id="ctrlRows"></tbody></table>
+  <h3>Simulator</h3>
+  <table><tbody>
+    <tr><td>Switch view (driver → chase → orbit → top)</td><td><kbd>V</kbd></td></tr>
+    <tr><td>Start a match (15 s auton + 1:45 driver)</td><td><kbd>M</kbd></td></tr>
+    <tr><td>Free drive (no timer)</td><td><kbd>P</kbd></td></tr>
+    <tr><td>Title menu (game modes)</td><td><kbd>Esc</kbd></td></tr>
+    <tr><td>Reset field + robot</td><td><kbd>T</kbd></td></tr>
+    <tr><td>This page</td><td><kbd>?</kbd> or <kbd>F1</kbd></td></tr>
+  </tbody></table>
+</div></div>
+<div id="menu"><div class="wrap">
+  <div class="kicker">VEX V5RC · OVERRIDE 2026–27</div>
+  <h1>TITANIUM <span>SIM</span></h1>
+  <div class="sub">3D physics simulator of our robot</div>
+  <div class="modes">
+    <button class="mode" data-game="free"><span class="k">1</span><b>Free Drive</b><small>Just you on the field. No timer, no rules. Practice intaking, the claw, and scoring.</small></button>
+    <button class="mode" data-game="solo"><span class="k">2</span><b>Solo Match</b><small>A full match by yourself: 15 s auton (your routine) then 1:45 driver control.</small></button>
+    <button class="mode" data-game="ai"><span class="k">3</span><b>2v2 vs AI</b><small>Full match with an AI partner on your alliance and two AI opponents.</small></button>
+  </div>
+  <div class="opts">
+    <label class="f">Your start<select id="mStart"><option value="red1">Red 1 Toggle</option><option value="red2">Red 2 Toggle</option><option value="blue1">Blue 1 Toggle</option><option value="blue2">Blue 2 Toggle</option></select></label>
+    <label class="f">AI skill<select id="mSkill"><option value="0.6">Rookie</option><option value="0.8" selected>Regular</option><option value="1">Pro</option></select></label>
+    <button id="mControls">Controls</button>
+  </div>
+  <div class="hint">Click a mode, press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>, or use the D-pad + A on a controller. <kbd>Esc</kbd> brings this menu back.</div>
+</div></div>
+<div id="toast"></div>
+<div id="tags"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
