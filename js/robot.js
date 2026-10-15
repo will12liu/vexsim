@@ -16,6 +16,7 @@ export const CFG = {
 	rollingLoss: 0.04,                  // rolling resistance as a fraction of weight
 	coastDrag: 1.5,                     // coasting motors still drag (gearbox + cartridge friction), as a fraction of brake
 	yawScrub: 4.0,                      // N*m per rad/s resisting spin when not turning
+	turnScrub: 0.5,                     // N*m per rad/s omni scrub while turning (tops out ~300 deg/s)
 	sideGrip: 1.0,                      // how hard the wheels resist sliding sideways (1 = full tile grip)
 	mu: 1.0,                            // omni wheel grip on foam tiles
 	CLAW_TURN_VERTICAL_DEG: 0, CLAW_TURN_HORIZONTAL_DEG: 900, CLAW_LIFT_FRACTION: 0.25,
@@ -251,12 +252,14 @@ export class Robot {
 		// Omni rollers + chain scrub resist spinning; with no turn command the robot settles instead of
 		// carrying on rotating (that coasting spin felt like drifting).
 		const noTurn = Math.abs(this.leftCmd - this.rightCmd) < 8;
-		const scrub = noTurn ? clamp(-w * CFG.yawScrub, -Math.abs(w) * I / dt, Math.abs(w) * I / dt) : 0;
+		const scrub = clamp(-w * (noTurn ? CFG.yawScrub : CFG.turnScrub), -Math.abs(w) * I / dt, Math.abs(w) * I / dt);
 		const dW = ((((FR - FL) * tw) / 2 + scrub) / I) * dt;                          // CCW positive
 		const dvL = clamp(-vl, -CFG.mu * g * dt, CFG.mu * g * dt);                     // omnis resist sliding sideways
 		const imp = fwd.multiplyScalar(dvF * m).addScaledVector(right, dvL * m * CFG.sideGrip);
 		this.body.applyImpulse({ x: imp.x, y: 0, z: imp.z }, true);
-		this.body.applyTorqueImpulse({ x: 0, y: I * dW, z: 0 }, true);
+		// Set the spin directly with this inertia: Rapier's own (from the collider boxes) is ~3x bigger,
+		// which made turns sluggish and overshoot. Collisions still change it inside world.step().
+		this.body.setAngvel({ x: 0, y: w + dW, z: 0 }, true);
 		// Encoders (deg) and IMU (deg, clockwise positive, unwrapped like get_rotation()).
 		const circ = Math.PI * CFG.wheelDia * IN;
 		this.leftPos += ((vf - (w * tw) / 2) / circ) * 360 * dt;
@@ -292,8 +295,9 @@ export class Robot {
 	stepPins(dt) {
 		for (const r of this.justReleased || []) if ((r.t -= dt) <= 0 && !r.pin.held && (this.field.pins.includes(r.pin) || this.field.cups.includes(r.pin))) for (const c of colsOf(r.pin)) c.setCollisionGroups(0xffffffff);
 		if (this.justReleased) this.justReleased = this.justReleased.filter((r) => r.t > 0);
-		// Intake: grab a pin or cup sitting in front of the rollers.
-		if (this.intakeCmd > 30 && !this.hopper) {
+		// Intake: grab a pin or cup sitting in front of the rollers. One piece at a time: nothing is
+		// picked up while the robot already holds one (in the intake or the claw).
+		if (this.intakeCmd > 30 && !this.hopper && !this.claw) {
 			for (const pin of [...this.field.pins, ...this.field.cups]) {   // cups go through the same way as pins
 				if (pin.held) continue;
 				const f = toField(pin.body.translation());
@@ -348,12 +352,11 @@ export class Robot {
 	opcontrol(c, onRunAuton) {
 		const o = this.op, newPress = (k) => c[k] && !o.prev[k];
 		if (newPress('Down') && onRunAuton) onRunAuton();
-		if (newPress('R2')) { o.inverse = -o.inverse; this.flash?.(o.inverse > 0 ? 'DRIVE: FWD' : 'DRIVE: REV'); }
-		o.inverseScale = clamp(o.inverse, o.inverseScale - 0.25, o.inverseScale + 0.25);
-		let dir = c.ly, turn = c.rx;
+		// Negated like the robot code: stick down drives forward, stick up drives backward.
+		let dir = -c.ly, turn = c.rx;
 		if (Math.abs(dir) < 10) dir = 0;
 		if (Math.abs(turn) < 10) turn = 0;
-		dir = Math.round(dir * o.inverseScale);
+		dir *= o.inverse;
 		this.brake = 'coast';
 		this.leftCmd = clamp(dir + turn, -127, 127);
 		this.rightCmd = clamp(dir - turn, -127, 127);

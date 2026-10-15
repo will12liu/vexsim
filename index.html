@@ -109,22 +109,18 @@
   <div class="row"><select id="side"><option value="left">LEFT</option><option value="right">RIGHT</option></select><button id="btnAuton">Run auton (D-pad ↓)</button><button id="btnStop">Stop</button></div>
   <textarea id="routine" spellcheck="false">
 void run_routine() {
-	// ---- 1. Hit the Toggle twice -------------------------------------------
-	drive_time(-50,500);
-	drive_time(127, 900);
-	wait(150);        // hit 1: drive in
-	drive_time(-50, 600);        // back up
-	wait(150);                   // let the Toggle stop moving
+	// 1. Hit the Toggle twice 
+	drive_time(-50,500);//backup
+	drive_time(127, 900);//forward
+	wait(150); //wait
+	drive_time(-50, 600);        // back up        
 	drive_time(127, 950);        // hit 2: drive in
+	wait(150);           
 	drive_time(-95, 350);        // back off the Toggle a little
 
-	// ---- 2. Go to our goal and score ---------------------------------------                // lift starts rising while we drive
+	//2. score preloaded pin               
 	turn(mirror(-85), 100);      // turn so the BACK (claw side) faces our goal
 	move(-45, 50);              // reverse toward the goal
-
-	// ---- 3. Score: each step on its own, so you can reorder / retime them --
-                // start the lift rising
-                // wait until it is up
 	claw_out();                  // claw vertical -> horizontal
 	claw_drop();                 // claw spin (A button) to drop the pin
 	claw_up();                   // claw slightly up (B's 2nd press)

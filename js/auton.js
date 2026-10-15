@@ -1,9 +1,11 @@
 // Port of src/auton_cmds.cpp. Your run_routine() code runs almost unchanged: blocking
 // commands become generator calls that advance one physics step (1/120 s) per yield.
 import { CFG } from './robot.js';
+import { toField } from './field.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const BLOCKING = ['move', 'turn_to', 'turn', 'drive_time', 'wait', 'lift_wait', 'claw_in', 'claw_out', 'claw_up', 'claw_drop', 'score'];
+const BLOCKING = ['move', 'turn_to', 'turn', 'drive_time', 'wait', 'lift_wait', 'claw_in', 'claw_out', 'claw_up', 'claw_drop', 'score',
+	'drive_to', 'back_to', 'face', 'face_heading', 'drive_to_pose', 'back_to_pose'];
 
 // C++ routine text -> generator function source.
 export function translate(src) {
@@ -115,11 +117,68 @@ export function makeAuton(robot, sel /* { side: 'left'|'right', color: 'red'|'bl
 		if (ms <= 0) ms = CFG.CLAW_DROP_MS;
 		robot.clawSpin = speed; yield* wait(ms); robot.clawSpin = 0;
 	}
+	// ---- LemLib odometry (drive_to, face, ...): the sim knows exactly where the robot is, so this
+	// is perfect odometry. Pose frame like the robot code: (0, 0) = robot centre at auton start,
+	// +y = the way it faced at the start, +x = to its right, heading 0 = start direction, clockwise +.
+	const DEG = Math.PI / 180, wrap180 = (a) => ((((a + 180) % 360) + 360) % 360) - 180;
+	const fieldPos = () => toField(robot.pos());
+	const fieldHeading = () => { const q = robot.quat(); const fx = 1 - 2 * (q.y * q.y + q.z * q.z), fz = 2 * (q.x * q.z - q.w * q.y); return Math.atan2(-fz, fx); };
+	const frame = { ox: 0, oy: 0, th: 0 };   // field origin + field angle (CCW rad) of the pose +y axis
+	const setFrame = (x, y, h) => {
+		const p = fieldPos(); frame.th = fieldHeading() + h * DEG;
+		const u = [Math.cos(frame.th), Math.sin(frame.th)], r = [Math.sin(frame.th), -Math.cos(frame.th)];
+		frame.ox = p.fx - x * r[0] - y * u[0]; frame.oy = p.fy - x * r[1] - y * u[1];
+	};
+	setFrame(0, 0, 0);
+	const pose = () => {
+		const p = fieldPos(), dx = p.fx - frame.ox, dy = p.fy - frame.oy;
+		const u = [Math.cos(frame.th), Math.sin(frame.th)], r = [Math.sin(frame.th), -Math.cos(frame.th)];
+		return { x: dx * r[0] + dy * r[1], y: dx * u[0] + dy * u[1], h: wrap180((frame.th - fieldHeading()) / DEG) };
+	};
+	const bearing = (p, x, y) => Math.atan2(x - p.x, y - p.y) / DEG;   // clockwise from +y
+	const LIN_KP = 8, ANG_KP = 2.2;
+	// Drive toward (x, y); `carrot` (optional) gives an intermediate point each step (boomerang).
+	function* chase(x, y, fwd, speed, timeout, carrot, exitIn = 1) {
+		const t0 = now(), max = clamp(speed, 0, 127);
+		dt(); yield;
+		while (!s.stopped && (now() - t0) * 1000 < timeout) {
+			const p = pose(), dist = Math.hypot(x - p.x, y - p.y);
+			if (dist < exitIn) break;
+			const c = carrot ? carrot(p, dist) : { x, y };
+			let err = wrap180(bearing(p, c.x, c.y) + (fwd ? 0 : 180) - p.h);
+			let lin = clamp(LIN_KP * dist, -max, max) * Math.max(0, Math.cos(err * DEG)) * (fwd ? 1 : -1);
+			if (dist > exitIn && Math.abs(lin) < MOVE_MIN && Math.abs(err) < 60) lin = fwd ? MOVE_MIN : -MOVE_MIN;
+			const ang = clamp(ANG_KP * err, -max, max);
+			driveLR(lin, dist < 2.5 ? 0 : ang);
+			yield;
+		}
+		stop();
+		s.goalHeading = robot.imuDeg;
+	}
+	function* faceDeg(target, speed, timeout) {   // pose heading -> IMU target
+		yield* turnToHeading(robot.imuDeg + wrap180(target - pose().h), speed, -1, -1, timeout);
+	}
+	const set_pose = (x, y, h) => { status(`set_pose ${x} ${y} ${h}`); setFrame(x, y, h); };
+	function* drive_to(x, y, speed = 100, timeout = 3000) { status(`drive_to ${x} ${y}`); yield* chase(x, y, true, speed, timeout); }
+	function* back_to(x, y, speed = 100, timeout = 3000) { status(`back_to ${x} ${y}`); yield* chase(x, y, false, speed, timeout); }
+	function* face(x, y, speed = 100, timeout = 1500) { status(`face ${x} ${y}`); yield* faceDeg(bearing(pose(), x, y), speed, timeout); }
+	function* face_heading(h, speed = 100, timeout = 1500) { status(`face_heading ${h}`); yield* faceDeg(h, speed, timeout); }
+	function* toPose(x, y, h, fwd, speed, timeout) {
+		const t0 = now();
+		const front = [Math.sin(h * DEG), Math.cos(h * DEG)], dir = fwd ? 1 : -1;   // travel direction = front * dir
+		// Boomerang: aim at a point behind the target along the final direction, so it curves in.
+		yield* chase(x, y, fwd, speed, timeout, (p, d) => (d < 6 ? { x, y } : { x: x - front[0] * dir * d * 0.6, y: y - front[1] * dir * d * 0.6 }), 2);
+		if (!s.stopped) yield* faceDeg(h, speed, Math.max(800, timeout - (now() - t0) * 1000));
+	}
+	function* drive_to_pose(x, y, h, speed = 100, timeout = 4000) { status(`drive_to_pose ${x} ${y} ${h}`); yield* toPose(x, y, h, true, speed, timeout); }
+	function* back_to_pose(x, y, h, speed = 100, timeout = 4000) { status(`back_to_pose ${x} ${y} ${h}`); yield* toPose(x, y, h, false, speed, timeout); }
+
 	function* score() { yield* lift_goal_wait(); if (s.stopped) return; yield* claw_out(); if (s.stopped) return; yield* claw_drop(); if (s.stopped) return; yield* claw_up(); }
 	function* lift_goal_wait() { api.lift_goal(); yield* lift_wait(); }
 
 	const api = {
 		move, turn, turn_to, drive_time, wait, lift_wait, claw_in, claw_out, claw_up, claw_drop, score,
+		set_pose, drive_to, back_to, face, face_heading, drive_to_pose, back_to_pose,
 		move_pid: (p, d) => { s.moveKp = p; s.moveKd = d; },
 		turn_pid: (p, d) => { s.turnKp = p; s.turnKd = d; },
 		lift_goal: () => { status('lift_goal'); liftTo(CFG.LIFT_ALLIANCE_GOAL_DEG); },

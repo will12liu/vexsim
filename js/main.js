@@ -185,12 +185,11 @@ const XBOX = { position: { A: 'B', B: 'A', X: 'Y', Y: 'X' }, letter: { A: 'A', B
 function renderControls() {
 	const x = XBOX[input.layout], k = (...a) => a.map((c) => `<kbd>${c}</kbd>`).join(' ');
 	const rows = [
-		['Drive forward / back', 'Left stick ↕', 'Left stick ↕', k('W', 'S'), 'Sticks are proportional: push a little = go slow. Keys ramp up: tap = slow, hold = full. Shift = half speed'],
+		['Drive', 'Left stick ↕', 'Left stick ↕', k('W', 'S'), 'Like the robot code: stick DOWN drives forward (intake first), stick UP drives backward (claw first). W = stick up, S = stick down. Proportional: push a little = go slow; keys ramp up, Shift = half speed'],
 		['Turn', 'Right stick ↔', 'Right stick ↔', k('A', 'D')],
 		['Lift up (cascade)', k('L1'), k('LB'), k('R')],
 		['Lift down', k('L2'), k('LT'), k('G')],
 		['Intake cycle', k('R1'), k('RB'), k('E'), '1st: intake + claw grabs · 2nd: claw spin only · 3rd: off'],
-		['Reverse drive direction', k('R2'), k('RT'), k('Q'), 'Rumble: short = forward, long = reversed'],
 		['Claw flip', k('B'), k(x.B), k('B'), 'Down (receives pin) → 90° (pin hangs over goal) → lifted → down'],
 		['Claw spin in / drop pin', k('A'), k(x.A), k('F'), 'Toggle. Spinning this way lets go of the pin'],
 		['Claw spin out', k('Y'), k(x.Y), k('Y'), 'Toggle'],
@@ -252,7 +251,7 @@ const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padS
 const dot = (c) => `<span class="dot ${c}"></span>`;
 function updateHud(score) {
 	const label = { practice: 'PRACTICE', auton: 'AUTONOMOUS', driver: 'DRIVER', ended: 'MATCH OVER' }[sim.mode];
-	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '') + (robot.op.inverse < 0 ? ' · DRIVE REV' : '');
+	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '');
 	$('clock').textContent = sim.mode === 'practice' ? '--:--' : fmtClock(Math.max(0, sim.clock));
 	const s = sim.final || score;
 	$('red').textContent = s.red; $('blue').textContent = s.blue;
@@ -261,7 +260,7 @@ function updateHud(score) {
 	const st = ['vertical', 'horizontal', 'lifted'];
 	const clawState = robot.clawDeg < 450 ? 'vertical' : robot.clawDeg < 1010 ? 'horizontal' : 'lifted';
 	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
-		`Drive ${robot.op.inverse > 0 ? 'FWD' : 'REV'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
+		`IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	void st;
 	$('source').textContent = input.source;
 }
@@ -339,4 +338,14 @@ function updateTags() {
 }
 requestAnimationFrame(tick);
 $('loading').remove();
+// Auton routine: routine.cpp is copied from the robot code (tools/sync-robot-code.sh). Load its
+// run_routine() into the editor unless it's already been edited here.
+const routineDefault = $('routine').value;
+fetch('routine.cpp', { cache: 'no-cache' }).then((r) => (r.ok ? r.text() : null)).then((src) => {
+	const i = src?.indexOf('void run_routine()') ?? -1;
+	if (i < 0 || $('routine').value !== routineDefault) return;
+	let d = 0, k = src.indexOf('{', i);
+	for (; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && --d === 0) break; }
+	$('routine').value = src.slice(i, k + 1) + '\n';
+}).catch(() => {});
 window.sim = { robot, ais, startGame, showMenu, field, world, sim, toField, IN, advance, resetField, startAuton, $, camera, controls, setCam };   // for debugging in the console

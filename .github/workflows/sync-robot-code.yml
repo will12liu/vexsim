@@ -1,0 +1,38 @@
+# Keeps routine.cpp in step with the robot code (will12liu/titaniumvex, private).
+# Needs a repo secret TITANIUMVEX_TOKEN: a fine-grained GitHub token with read-only
+# "Contents" access to will12liu/titaniumvex. Without it this job just skips.
+# A changed routine is committed here, which makes Cloudflare Pages redeploy the sim.
+name: Sync auton routine from robot code
+on:
+  schedule: [{ cron: "17 * * * *" }]   # hourly
+  workflow_dispatch:                     # "Run workflow" button in the Actions tab
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for token
+        id: tok
+        env: { T: "${{ secrets.TITANIUMVEX_TOKEN }}" }
+        run: if [ -n "$T" ]; then echo "ok=1" >> "$GITHUB_OUTPUT"; else echo "No TITANIUMVEX_TOKEN secret: skipping"; fi
+      - uses: actions/checkout@v4
+        if: steps.tok.outputs.ok
+      - uses: actions/checkout@v4
+        if: steps.tok.outputs.ok
+        with:
+          repository: will12liu/titaniumvex
+          ref: main
+          token: ${{ secrets.TITANIUMVEX_TOKEN }}
+          path: robot
+          sparse-checkout: src/routine.cpp
+      - name: Commit if the routine changed
+        if: steps.tok.outputs.ok
+        run: |
+          cp robot/src/routine.cpp routine.cpp
+          rm -rf robot
+          if git diff --quiet -- routine.cpp; then echo "No change"; exit 0; fi
+          git config user.name "routine-sync"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Sync auton routine from titaniumvex" -- routine.cpp
+          git push
