@@ -56,7 +56,7 @@ export class Robot {
 		const box = (x0, x1, y0, y1, z0, z1, density = 800) => {
 			const d = R.ColliderDesc.cuboid(((x1 - x0) / 2) * IN, ((y1 - y0) / 2) * IN, ((z1 - z0) / 2) * IN)
 				.setTranslation(((x0 + x1) / 2) * IN, ((y0 + y1) / 2) * IN, ((z0 + z1) / 2) * IN)
-				.setFriction(0).setFrictionCombineRule(R.CoefficientCombineRule.Min).setDensity(density)
+				.setFriction(0).setFrictionCombineRule(R.CoefficientCombineRule.Min).setDensity(density)   // slides along goals/walls/robots instead of sticking
 				.setCollisionGroups(groups(GROUP.robot, 0xffff));
 			return world.createCollider(d, this.body);
 		};
@@ -74,6 +74,9 @@ export class Robot {
 			// pins are still grabbed because the intake reaches ~3" past the front.
 			box(hl - 2.5, hl + 0.8, 0.6, 7.5, -hw + 2, hw - 2, 0),   // massless: the robot's weight is already set
 			box(-hl + 1.5, hl - 2.5, 1.2, 10, -hw + 2, hw - 2, 0),
+			// Side and back panels (towers, motors, cascade): nothing pokes into the robot above the rails.
+			box(-hl + 2, hl - 2, 4, 12, -hw, -hw + 1.5, 0), box(-hl + 2, hl - 2, 4, 12, hw - 1.5, hw, 0),
+			box(-hl, -hl + 1.5, 4, 10, -hw + 1.5, hw - 1.5, 0),
 		];
 		// End channel of the claw frame: with the claw horizontal it's what hits the Toggle. Checked
 		// geometrically (clawTouches) rather than as a collider: with the robot locked to the floor, a

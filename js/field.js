@@ -132,7 +132,7 @@ export function clampVelocities(objs) {
 		const vy = Math.min(v.y, 0.6);
 		if (k < 1 || vy !== v.y) o.body.setLinvel({ x: v.x * k, y: vy, z: v.z * k }, true);
 		const w = o.body.angvel(), ws = Math.hypot(w.x, w.y, w.z);
-		if (ws > 12) o.body.setAngvel({ x: (w.x * 12) / ws, y: (w.y * 12) / ws, z: (w.z * 12) / ws }, true);
+		if (ws > 8) o.body.setAngvel({ x: (w.x * 8) / ws, y: (w.y * 8) / ws, z: (w.z * 8) / ws }, true);   // a pin tipping over turns ~5-8 rad/s
 	}
 }
 
@@ -384,11 +384,20 @@ export class Field {
 	makePin(top, bottom, pos, quat) {
 		const { R, world } = this;
 		const body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
-			.setRotation(quat || { x: 0, y: 0, z: 0, w: 1 }).setCcdEnabled(true).setLinearDamping(0.5).setAngularDamping(1.2));
+			.setRotation(quat || { x: 0, y: 0, z: 0, w: 1 }).setCcdEnabled(true).setLinearDamping(0.5).setAngularDamping(3));   // tips over, doesn't twirl
 		// Compound shape matching the real pin: narrow tapered top, wide collar, short taper below.
 		// ~60 g total so the robot pushes it instead of launching it.
-		const part = (profile) => world.createCollider(R.ColliderDesc.convexHull(hullPts(profile)).setDensity(240).setFriction(0.6).setRestitution(0), body);
-		const collider = part(PIN_COLLAR_P);
+		// Mass is set by hand: Rapier computes these thin hulls' centre of mass ~0.4" off the axis,
+		// which tipped standing pins over by themselves. 65 g, centre of mass on the axis just
+		// below mid-height, inertia of a 2"-wide, 6.5"-tall solid.
+		const m = 0.065, r = 1.0 * IN, h = PIN_H * IN;
+		const part = (profile, massive) => {
+			const d = R.ColliderDesc.convexHull(hullPts(profile)).setFriction(0.6).setRestitution(0);
+			if (massive) d.setMassProperties(m, { x: 0, y: -0.15 * IN, z: 0 }, { x: (m * (3 * r * r + h * h)) / 12, y: 0.5 * m * r * r, z: (m * (3 * r * r + h * h)) / 12 }, { x: 0, y: 0, z: 0, w: 1 });
+			else d.setDensity(0);
+			return world.createCollider(d, body);
+		};
+		const collider = part(PIN_COLLAR_P, true);
 		const extra = [part(PIN_BOTTOM), part(PIN_TOP)];
 		const mesh = new THREE.Group();
 		for (const [c, geo] of [[top, pinGeo().top], [bottom, pinGeo().bottom]]) {
@@ -405,7 +414,7 @@ export class Field {
 	makeCup(pos, opaqueUp) {
 		const { R, world } = this;
 		const body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
-			.setCcdEnabled(true).setLinearDamping(0.2).setAngularDamping(0.6));
+			.setCcdEnabled(true).setLinearDamping(0.3).setAngularDamping(2.5));
 		const wall = 0.1;
 		for (const d of ringColliders(R, null, CUP_R - wall, wall, CUP_H, 0, (d) => d.setDensity(500).setFriction(0.5)))
 			world.createCollider(d, body);

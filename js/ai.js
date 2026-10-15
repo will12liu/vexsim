@@ -65,18 +65,46 @@ export class AIRobot extends Robot {
 	fpos() { return toField(this.pos()); }
 	heading() { const f = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat()); return Math.atan2(-f.z, f.x); }
 
-	// Arcade drive toward a field point; returns the distance left (inches).
-	driveTo(fx, fy, speed = 0.8, reverse = false) {
+	// If a goal (other than the one we're going to) sits on the straight line to (fx, fy), aim for
+	// a point beside it instead, on the side we're already on. Returns the point to drive at.
+	avoid(fx, fy, except) {
+		const p = this.fpos(), dx = fx - p.fx, dy = fy - p.fy, L2 = dx * dx + dy * dy;
+		if (L2 < 1) return { fx, fy };
+		let best = null, bestT = 2;
+		for (const g of this.field.goals) {
+			if (g === except || Math.hypot(g.fx - fx, g.fy - fy) < 6) continue;
+			const t = ((g.fx - p.fx) * dx + (g.fy - p.fy) * dy) / L2;
+			if (t <= 0 || t >= 1) continue;
+			const cx = p.fx + dx * t, cy = p.fy + dy * t, off = Math.hypot(g.fx - cx, g.fy - cy);
+			const clear = g.type === 'tall' ? 20 : 15;   // goal base + half the robot
+			if (off < clear && t < bestT) { bestT = t; best = { g, cx, cy, off, clear }; }
+		}
+		if (!best) return { fx, fy };
+		const { g, cx, cy, off, clear } = best;
+		let nx = cx - g.fx, ny = cy - g.fy;   // push the waypoint out from the goal, our side of it
+		if (off < 0.5) { nx = -dy; ny = dx; }
+		const n = Math.hypot(nx, ny);
+		return { fx: clamp(g.fx + (nx / n) * (clear + 3), -62, 62), fy: clamp(g.fy + (ny / n) * (clear + 3), -62, 62) };
+	}
+
+	// Arcade drive toward a field point (steering around goals in the way); returns the distance
+	// left to the real target (inches).
+	driveTo(fx, fy, speed = 0.8, reverse = false, except = this.ai?.target) {
+		const real = Math.hypot(fx - this.fpos().fx, fy - this.fpos().fy);
+		if (!reverse && real > 8) ({ fx, fy } = this.avoid(fx, fy, except));
 		const p = this.fpos(), d = Math.hypot(fx - p.fx, fy - p.fy);
 		const err = wrap(Math.atan2(fy - p.fy, fx - p.fx) + (reverse ? Math.PI : 0) - this.heading());
 		const turn = this.steer(err) * Math.min(1, (this.skill || 0.8) / 0.8);
 		const fwd = Math.cos(err) > 0.8 ? clamp(d / 14, 0.25, 1) * speed * (this.skill || 0.8) / 0.8 * Math.cos(err) * (reverse ? -1 : 1) : 0;
 		this.arcade(fwd, turn);
-		return d;
+		return real;
 	}
 	turnTo(angle) { const err = wrap(angle - this.heading()); this.arcade(0, this.steer(err) * 0.8); return Math.abs(err); }
 	// PD on heading: the spin-rate term brakes the turn before it overshoots.
-	steer(err) { const w = this.body.angvel().y; return clamp(1.1 * err - 0.32 * w, -0.85, 0.85); }
+	steer(err) {
+		const w = this.body.angvel().y, out = clamp(1.1 * err - 0.32 * w, -0.85, 0.85);
+		return Math.abs(err) > 0.04 && Math.abs(out) < 0.22 ? Math.sign(err) * 0.22 : out;   // enough to beat wheel drag
+	}
 	setState(st) { Object.assign(this.ai, { state: st, t: 0, stuckT: 0, lastPos: null, aligning: false }); }
 	arcade(fwd, turn) { this.leftCmd = clamp(fwd - turn, -1, 1) * 127; this.rightCmd = clamp(fwd + turn, -1, 1) * 127; }
 
@@ -90,8 +118,8 @@ export class AIRobot extends Robot {
 		const p = this.fpos();
 		if (ai.state !== 'unstick' && !ai.aligning) {
 			ai.stuckT += dt;
-			if (ai.stuckT > 2.5) {
-				if (ai.lastPos && Math.hypot(p.fx - ai.lastPos.fx, p.fy - ai.lastPos.fy) < 3) {
+			if (ai.stuckT > 1.5) {
+				if (ai.lastPos && Math.hypot(p.fx - ai.lastPos.fx, p.fy - ai.lastPos.fy) < 2.5) {
 					if (ai.target) ai.ban.set(ai.target, this.t + 8);
 					ai.state = 'unstick'; ai.t = 0; ai.prev = this.claw ? 'score' : 'fetch'; ai.target = null;
 				}
@@ -242,6 +270,7 @@ export class AIRobot extends Robot {
 		pin.body.setTranslation({ x: pos.x, y: pos.y, z: pos.z }, true);
 		pin.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
 		this.releasePin(pin, false);
+		this.field.assistDrop(pin);   // guided down onto the post (same goal-top funnel as the driver's drops)
 		return true;
 	}
 }
