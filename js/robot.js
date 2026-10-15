@@ -8,7 +8,7 @@ import { buildRobotMesh } from './robotmodel.js';
 // ---- Constants mirrored from the real code (include/mechanisms.h, robot-config.cpp) ----
 export const CFG = {
 	// Size: PLACEHOLDER until measured on the robot.
-	length: 17, width: 15, height: 18,
+	length: 17, width: 15, height: 44.4 / 2.54,   // team: robot top is 45 cm with the lift all the way down (frame sits 0.6 cm above H)
 	trackWidth: 11.02, wheelDia: 3.25, driveRpm: 600, mass: 6.5 /* kg */,
 	motorsPerSide: 2,                   // left {1,4}, right {-2,-3}
 	motorStallNm: 2.1,                  // V5 11W stall torque with the 100 rpm cartridge (VEX spec)
@@ -27,7 +27,7 @@ export const CFG = {
 	pinBottomAtHorizontal: 7.7,         // lift down + claw horizontal: pivot at 13.2" so the end of the claw frame
 	                                    // lines up with the Toggle (13.5" axis) and flips it, like the real robot
 	liftInPerDeg: 0.03,                 // lift inches per cascade motor degree (assumed)
-	liftMaxIn: 24,                      // team: the whole robot tops out around 100-110 cm (~6 pins tall)
+	liftMaxIn: 62.1 / 2.54,             // team: fully up the top of the cascade is 105 cm (top stage starts 2.1 cm below the frame)
 	liftDegPerSec: 1200,                // 200 rpm green at full command
 	LIFT_ALLIANCE_GOAL_DEG: 400, LIFT_SHORT_GOAL_DEG: 700, LIFT_TALL_GOAL_DEG: 1100, LIFT_VELOCITY: 200,
 };
