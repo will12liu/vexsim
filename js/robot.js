@@ -352,11 +352,13 @@ export class Robot {
 	opcontrol(c, onRunAuton) {
 		const o = this.op, newPress = (k) => c[k] && !o.prev[k];
 		if (newPress('Down') && onRunAuton) onRunAuton();
-		// Negated like the robot code: stick down drives forward, stick up drives backward.
-		let dir = -c.ly, turn = c.rx;
+		// R2 toggles forward/reverse driving (ramped over ~160 ms); steering keeps its direction.
+		if (newPress('R2')) { o.inverse = -o.inverse; this.flash?.(o.inverse > 0 ? 'DRIVE: FWD' : 'DRIVE: REV'); }
+		o.inverseScale = clamp(o.inverse, o.inverseScale - 0.25, o.inverseScale + 0.25);
+		let dir = c.ly, turn = c.rx;
 		if (Math.abs(dir) < 10) dir = 0;
 		if (Math.abs(turn) < 10) turn = 0;
-		dir *= o.inverse;
+		dir = Math.round(dir * o.inverseScale);
 		this.brake = 'coast';
 		this.leftCmd = clamp(dir + turn, -127, 127);
 		this.rightCmd = clamp(dir - turn, -127, 127);

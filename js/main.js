@@ -185,7 +185,8 @@ const XBOX = { position: { A: 'B', B: 'A', X: 'Y', Y: 'X' }, letter: { A: 'A', B
 function renderControls() {
 	const x = XBOX[input.layout], k = (...a) => a.map((c) => `<kbd>${c}</kbd>`).join(' ');
 	const rows = [
-		['Drive', 'Left stick ↕', 'Left stick ↕', k('W', 'S'), 'Like the robot code: stick DOWN drives forward (intake first), stick UP drives backward (claw first). W = stick up, S = stick down. Proportional: push a little = go slow; keys ramp up, Shift = half speed'],
+		['Drive forward / back', 'Left stick ↕', 'Left stick ↕', k('W', 'S'), 'Sticks are proportional: push a little = go slow. Keys ramp up: tap = slow, hold = full. Shift = half speed'],
+		['Reverse drive direction', k('R2'), k('RT'), k('Q'), 'Toggles FWD / REV (shown on the scoreboard). Rumble: short = forward, long = reversed'],
 		['Turn', 'Right stick ↔', 'Right stick ↔', k('A', 'D')],
 		['Lift up (cascade)', k('L1'), k('LB'), k('R')],
 		['Lift down', k('L2'), k('LT'), k('G')],
@@ -251,7 +252,7 @@ const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padS
 const dot = (c) => `<span class="dot ${c}"></span>`;
 function updateHud(score) {
 	const label = { practice: 'PRACTICE', auton: 'AUTONOMOUS', driver: 'DRIVER', ended: 'MATCH OVER' }[sim.mode];
-	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '');
+	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '') + (robot.op.inverse < 0 ? ' · DRIVE REV' : '');
 	$('clock').textContent = sim.mode === 'practice' ? '--:--' : fmtClock(Math.max(0, sim.clock));
 	const s = sim.final || score;
 	$('red').textContent = s.red; $('blue').textContent = s.blue;
@@ -260,7 +261,7 @@ function updateHud(score) {
 	const st = ['vertical', 'horizontal', 'lifted'];
 	const clawState = robot.clawDeg < 450 ? 'vertical' : robot.clawDeg < 1010 ? 'horizontal' : 'lifted';
 	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
-		`IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
+		`Drive ${robot.op.inverse > 0 ? 'FWD' : 'REV'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	void st;
 	$('source').textContent = input.source;
 }
@@ -268,7 +269,8 @@ function updateHud(score) {
 // ---- Loop ----------------------------------------------------------------------------
 resetField();
 let last = performance.now(), acc = 0, frame = 0, score = field.score({ red: 0, blue: 0 });
-function control(ctrl) {
+function control(input) {
+	const ctrl = { ...input };   // don't flip the caller's copy (a reused state would flip back and forth)
 	if ($('invY').checked) ctrl.ly = -ctrl.ly;
 	if ($('invX').checked) ctrl.rx = -ctrl.rx;
 	const driverMode = sim.mode === 'practice' || sim.mode === 'driver';
