@@ -24,8 +24,7 @@ export const CFG = {
 	CLAW_DROP_SPEED: 127, CLAW_DROP_MS: 700,
 	clawDegPerMotorDeg: 0.1,            // 900 motor deg = 90 deg of arm swing (assumed)
 	clawArm: 9,                         // pivot -> grip, inches (from photos)
-	pinBottomAtHorizontal: 7.7,         // lift down + claw horizontal: pivot at 13.2" so the end of the claw frame
-	                                    // lines up with the Toggle (13.5" axis) and flips it, like the real robot
+	pinBottomAtHorizontal: 25 / 2.54 - 5.5,   // team (2026-10-15): claw lowered, pivot 25 cm off the floor with the lift down
 	liftInPerDeg: 0.03,                 // lift inches per cascade motor degree (assumed)
 	liftMaxIn: 62.1 / 2.54,             // team: fully up the top of the cascade is 105 cm (top stage starts 2.1 cm below the frame)
 	liftDegPerSec: 1200,                // 200 rpm green at full command
@@ -89,7 +88,10 @@ export class Robot {
 		const clawBox = (hx, hy, hz) => world.createCollider(R.ColliderDesc.cuboid(hx * IN, hy * IN, hz * IN).setDensity(0).setFriction(0)
 			.setCollisionGroups(groups(GROUP.claw, 0xffff & ~(GROUP.toggle | GROUP.wall | GROUP.fixed))), this.body);
 		this.clawCols = [
-			{ c: clawBox(1.0, 0.5, cw + 0.5), p: [0, -arm, 0] },   // end channel (2 holes wide, like the mesh)
+			// End channel (2 holes wide, like the mesh), open at the grip: a pin/cup there is in the
+			// gripper (grabbed, or just placed and the claw lowering past it), not hitting the frame.
+			{ c: clawBox(1.0, 0.5, (cw + 0.5 - 2.2) / 2), p: [0, -arm, -(cw + 0.5 + 2.2) / 2] },
+			{ c: clawBox(1.0, 0.5, (cw + 0.5 - 2.2) / 2), p: [0, -arm, (cw + 0.5 + 2.2) / 2] },
 			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, -cw] },
 			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, cw] },
 		];
@@ -130,6 +132,12 @@ export class Robot {
 		this.resetState();
 	}
 
+	// Grip point (end of the claw frame) in world coordinates.
+	clawGripWorld() {
+		const a = this.clawArmAngle(), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
+		return this.toWorld(-6.5 - CFG.clawArm * Math.sin(a), py - CFG.clawArm * Math.cos(a), 0);
+	}
+
 	// Is the end channel of the claw frame touching this Toggle? (Points along it vs the Toggle's prism.)
 	clawTouches(tg) {
 		const a = this.clawArmAngle(), ca = Math.cos(a), sa = Math.sin(a), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
@@ -145,6 +153,16 @@ export class Robot {
 
 	// With the claw frame against a Toggle the robot can't keep going toward the wall (it's solid).
 	holdAtToggle() {
+		// The claw frame sticking out at wall height stops against the perimeter (it isn't a collider
+		// there: see clawCols). Block motion that would push its end past a wall.
+		const [p0, p1] = this.clawSeg, a = this.clawArmAngle(), ca = Math.cos(a), sa = Math.sin(a), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
+		for (const z of [p0[2], 0, p1[2]]) {
+			const f = toField(this.toWorld(-6.5 + p0[0] * ca + p0[1] * sa, py - p0[0] * sa + p0[1] * ca, z));
+			if (f.h > 12.5) continue;
+			const v = this.body.linvel();
+			if (Math.abs(f.fx) > 71.4 && Math.sign(v.x) === Math.sign(f.fx)) this.body.setLinvel({ x: 0, y: 0, z: v.z }, true);
+			if (Math.abs(f.fy) > 71.4 && Math.sign(-v.z) === Math.sign(f.fy)) this.body.setLinvel({ x: this.body.linvel().x, y: 0, z: 0 }, true);
+		}
 		const tg = this.clawToggle;
 		if (!tg) { this.toggleHitV = 0; return; }
 		const v = this.body.linvel(), n = tg.nWorld, vn = v.x * n.x + v.z * n.z;
@@ -315,6 +333,31 @@ export class Robot {
 			this.transferT += dt;
 			if (this.transferT > 0.25) { const p = this.hopper; this.hopper = null; p.held = null; this.attachPin(p, 'claw'); this.transferT = 0; }
 		} else this.transferT = 0;
+		// The claw as an intake: swung out and spinning the grab way, it picks up an upright pin or
+		// cup whose top is at the grip (off the floor, a goal or a stack). One piece at a time.
+		if (!this.claw && !this.hopper && this.clawSpin < -30 && this.clawDeg > 300) {
+			const g = this.clawGripWorld(), recent = new Set((this.justPlaced || []).map((r) => r.o));
+			for (const o of [...this.field.pins, ...this.field.cups]) {
+				if (o.held || recent.has(o)) continue;
+				const t = o.body.translation(), r = o.body.rotation();
+				const ax = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(r.x, r.y, r.z, r.w));
+				if (Math.abs(ax.y) < 0.8) continue;   // only upright pieces
+				const grab = new THREE.Vector3(t.x, t.y, t.z).addScaledVector(ax, Math.sign(ax.y) * (PIN_H / 2 - 1) * IN);
+				if (Math.hypot(grab.x - g.x, grab.z - g.z) < 2 * IN && Math.abs(grab.y - g.y) < 2.5 * IN) { this.attachPin(o, 'claw'); break; }   // rollers reach ~2" around
+			}
+		}
+		// Scoring by going down: holding a piece out over a goal, lowering the lift until it seats
+		// lets go. Only while actually lowering, and not right after picking the piece up.
+		this.clawHeldT = this.claw && this.claw === this.clawHeldObj ? this.clawHeldT + dt : 0;
+		this.clawHeldObj = this.claw;
+		if (this.claw && this.clawHeldT > 0.5 && (this.liftRate || 0) < -1 && Math.abs(this.clawDeg - CFG.CLAW_TURN_HORIZONTAL_DEG) < 200) {
+			const o = this.claw, s = this.field.seatFor(o), h = o.body.translation().y / IN;
+			if (s && h - PIN_H / 2 <= s.seatBottom + 0.4) {
+				this.releasePin(o, false); this.field.assistDrop(o);
+				(this.justPlaced ||= []).push({ o, t: 2 });
+			}
+		}
+		if (this.justPlaced) this.justPlaced = this.justPlaced.filter((r) => (r.t -= dt) > 0);
 		// Spinning the claw the drop direction lets go of the pin.
 		if (this.claw && this.clawSpin > 30) {
 			this.releaseT += dt;

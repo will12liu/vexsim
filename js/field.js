@@ -492,6 +492,26 @@ export class Field {
 	// The goal tops are chamfered and the pins/cups taper, so a piece dropped a little off-centre
 	// funnels onto the post. Within 2.5" of a goal it is lined up and drops straight down — only
 	// where it can legally go: a pin onto an empty goal or into a cup, a cup onto a pin (<SC3>).
+	// Where piece o (pin or cup) could legally go on a goal it's over: { g, top, surface, seatBottom }
+	// (seatBottom = height of the piece's bottom once seated), or null.
+	seatFor(o) {
+		const t = toField(o.body.translation()), cup = this.cups.includes(o);
+		for (const g of this.goals) {
+			if (Math.hypot(t.fx - g.fx, t.fy - g.fy) > 2.5) continue;
+			let top = null, topH = -1;
+			for (const k of [...this.pins, ...this.cups]) {
+				if (k === o || k.held) continue;
+				const q = toField(k.body.translation()), r = k.body.rotation();
+				if (1 - 2 * (r.x * r.x + r.z * r.z) > 0.85 && Math.hypot(q.fx - g.fx, q.fy - g.fy) < 2.2 && q.h > g.base && q.h > topH) { top = k; topH = q.h; }
+			}
+			const topIsCup = top && this.cups.includes(top);
+			if (cup ? !top || topIsCup : top && !topIsCup) return null;
+			const surface = !top ? g.H : topIsCup ? topH + CUP_H / 2 : topH - PIN_H / 2 + PIN_COLLAR;
+			return { g, top, surface, seatBottom: cup ? surface : surface - PIN_COLLAR };
+		}
+		return null;
+	}
+
 	assistDrop(o) {
 		const t = toField(o.body.translation()), cup = this.cups.includes(o);
 		for (const g of this.goals) {
@@ -505,7 +525,7 @@ export class Field {
 			const topIsCup = top && this.cups.includes(top);
 			if (cup ? !top || topIsCup : top && !topIsCup) return false;
 			const surface = !top ? g.H : topIsCup ? topH + CUP_H / 2 : topH - PIN_H / 2 + PIN_COLLAR;
-			if (t.h - PIN_H / 2 < surface - 1) return false;   // already below the top: too late to funnel
+			if (t.h - PIN_H / 2 < (cup ? surface : surface - PIN_COLLAR) - 0.5) return false;   // already below its seat: too late
 			// Aim at the top of the stack (a cup may sit a little off-centre), then guide it down.
 			const aim = top ? toField(top.body.translation()) : g;
 			const p = W(aim.fx, aim.fy, Math.max(t.h, surface + PIN_H / 2));
