@@ -79,6 +79,16 @@ export class Robot {
 		// collider pressed by the turning Toggle makes the solver fling the robot.
 		const cw = hw - 1.6;
 		this.clawSeg = [[0, -CFG.clawArm, -cw - 0.5], [0, -CFG.clawArm, cw + 0.5]];
+		// Claw frame (side arms + end channel) as colliders that swing with the claw, so it can't pass
+		// through pins and cups. They skip the Toggle, walls and goals (see GROUP.fixed in field.js).
+		const arm = CFG.clawArm;
+		const clawBox = (hx, hy, hz) => world.createCollider(R.ColliderDesc.cuboid(hx * IN, hy * IN, hz * IN).setDensity(0).setFriction(0)
+			.setCollisionGroups(groups(GROUP.claw, 0xffff & ~(GROUP.toggle | GROUP.wall | GROUP.fixed))), this.body);
+		this.clawCols = [
+			{ c: clawBox(1.0, 0.5, cw + 0.5), p: [0, -arm, 0] },   // end channel (2 holes wide, like the mesh)
+			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, -cw] },
+			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, cw] },
+		];
 		this.mesh = this.buildMesh();
 		this.scene.add(this.mesh);
 	}
@@ -190,7 +200,9 @@ export class Robot {
 		if (slot) this[slot] = null;
 		pin.held = null;
 		pin.body.setBodyType(this.R.RigidBodyType.Dynamic, true);
-		for (const c of colsOf(pin)) c.setCollisionGroups(0xffffffff);
+		// Briefly ignore the claw frame so a piece let go from the grip can drop out of it.
+		for (const c of colsOf(pin)) c.setCollisionGroups(groups(0xffff & ~GROUP.claw, 0xffff & ~GROUP.claw));
+		(this.justReleased ||= []).push({ pin, t: 0.5 });
 		const v = keepVel ? this.body.linvel() : { x: 0, y: 0, z: 0 };
 		const f = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat()).multiplyScalar(pushFwd);
 		pin.body.setLinvel({ x: v.x + f.x, y: v.y + f.y, z: v.z + f.z }, true);
@@ -268,9 +280,18 @@ export class Robot {
 		const move = this.clawToggle && Math.sign(e) === this.clawDir ? 0 : clamp(e, -step, step);
 		if (move) this.clawDir = Math.sign(move);
 		this.clawDeg += move;
+		const a = this.clawArmAngle(), ca = Math.cos(a), sa = Math.sin(a), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
+		const rq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -a);
+		for (const k of this.clawCols) {
+			const [x, y, z] = k.p;   // pivot-local, same transform as the claw mesh (rotation.z = -a)
+			k.c.setTranslationWrtParent({ x: (-6.5 + x * ca + y * sa) * IN, y: (py - x * sa + y * ca) * IN, z: z * IN });
+			k.c.setRotationWrtParent({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
+		}
 	}
 
 	stepPins(dt) {
+		for (const r of this.justReleased || []) if ((r.t -= dt) <= 0 && !r.pin.held && (this.field.pins.includes(r.pin) || this.field.cups.includes(r.pin))) for (const c of colsOf(r.pin)) c.setCollisionGroups(0xffffffff);
+		if (this.justReleased) this.justReleased = this.justReleased.filter((r) => r.t > 0);
 		// Intake: grab a pin or cup sitting in front of the rollers.
 		if (this.intakeCmd > 30 && !this.hopper) {
 			for (const pin of [...this.field.pins, ...this.field.cups]) {   // cups go through the same way as pins
@@ -290,7 +311,7 @@ export class Robot {
 		// Spinning the claw the drop direction lets go of the pin.
 		if (this.claw && this.clawSpin > 30) {
 			this.releaseT += dt;
-			if (this.releaseT > 0.12) { this.releasePin(this.claw, true); this.releaseT = 0; }
+			if (this.releaseT > 0.12) { const p = this.claw; this.releasePin(p, true); this.field.assistDrop(p); this.releaseT = 0; }
 		} else this.releaseT = 0;
 		// Move held pins.
 		const q = this.quat();

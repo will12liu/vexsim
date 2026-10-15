@@ -23,7 +23,7 @@ export const TOGGLE = { axisH: 13.5, inset: 0.3, len: 25.8, face: 2.05 };
 export const TOGGLE_EFFORT = 14;
 export const toggleFaces = (quad) => (quad.startsWith('red') ? ['yellow', 'blue', 'red'] : ['yellow', 'red', 'blue']);
 export const COLORS = { red: 0xd62828, blue: 0x1e6fd9, yellow: 0xf5c518, neutral: 0x2b2b2b };
-export const GROUP = { robot: 0x0002, toggle: 0x0004, wall: 0x0008 };
+export const GROUP = { robot: 0x0002, toggle: 0x0004, wall: 0x0008, claw: 0x0010, fixed: 0x0020 };
 export const groups = (member, filter) => ((member & 0xffff) << 16) | (filter & 0xffff);
 
 const GOALS = [
@@ -121,7 +121,13 @@ const CUP_MATS = {
 // spat out by the solver and goes flying.
 export function clampVelocities(objs) {
 	for (const o of objs) {
-		if (o.held) continue;
+		if (o.held) { o.funnel = null; continue; }
+		if (o.funnel) {   // sliding down the goal's chamfer: held over the post, falling gently, not tumbling
+			const f = o.funnel, c = o.body.translation(), v0 = o.body.linvel();
+			o.body.setLinvel({ x: (f.x - c.x) * 12, y: Math.max(v0.y, -1.2), z: (f.z - c.z) * 12 }, true);
+			o.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+			if ((f.t -= 1 / 120) <= 0) o.funnel = null;
+		}
 		const v = o.body.linvel(), hs = Math.hypot(v.x, v.z), k = hs > 1.8 ? 1.8 / hs : 1;
 		const vy = Math.min(v.y, 0.6);
 		if (k < 1 || vy !== v.y) o.body.setLinvel({ x: v.x * k, y: vy, z: v.z * k }, true);
@@ -158,6 +164,12 @@ export class Field {
 		this.goals = []; this.pins = []; this.cups = []; this.toggles = [];
 		this.dynamicMeshes = [];
 		this.buildStatic();
+		// Floor, goals etc. (fixed bodies with default groups): the claw frame passes over them. Only
+		// pins and cups collide with it; a fixed object pressing on the claw of a floor-locked robot
+		// makes the solver fling the robot.
+		world.forEachCollider((c) => {
+			if (c.parent()?.isFixed() && c.collisionGroups() === 0xffffffff) c.setCollisionGroups(groups(GROUP.fixed, 0xffff & ~GROUP.claw));
+		});
 		this.reset();
 	}
 
@@ -466,6 +478,36 @@ export class Field {
 				this.makePin(col, 'yellow', p, q);
 			}
 		}
+	}
+
+	// The goal tops are chamfered and the pins/cups taper, so a piece dropped a little off-centre
+	// funnels onto the post. Within 2.5" of a goal it is lined up and drops straight down — only
+	// where it can legally go: a pin onto an empty goal or into a cup, a cup onto a pin (<SC3>).
+	assistDrop(o) {
+		const t = toField(o.body.translation()), cup = this.cups.includes(o);
+		for (const g of this.goals) {
+			if (Math.hypot(t.fx - g.fx, t.fy - g.fy) > 2.5) continue;
+			let top = null, topH = -1;
+			for (const k of [...this.pins, ...this.cups]) {
+				if (k === o || k.held) continue;
+				const q = toField(k.body.translation()), r = k.body.rotation();
+				if (1 - 2 * (r.x * r.x + r.z * r.z) > 0.85 && Math.hypot(q.fx - g.fx, q.fy - g.fy) < 2.2 && q.h > g.base && q.h > topH) { top = k; topH = q.h; }
+			}
+			const topIsCup = top && this.cups.includes(top);
+			if (cup ? !top || topIsCup : top && !topIsCup) return false;
+			const surface = !top ? g.H : topIsCup ? topH + CUP_H / 2 : topH - PIN_H / 2 + PIN_COLLAR;
+			if (t.h - PIN_H / 2 < surface - 1) return false;   // already below the top: too late to funnel
+			// Aim at the top of the stack (a cup may sit a little off-centre), then guide it down.
+			const aim = top ? toField(top.body.translation()) : g;
+			const p = W(aim.fx, aim.fy, Math.max(t.h, surface + PIN_H / 2));
+			o.body.setTranslation({ x: p.x, y: p.y, z: p.z }, true);
+			o.funnel = { x: p.x, z: p.z, t: 1.5 };
+			o.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+			o.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+			o.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+			return true;
+		}
+		return false;
 	}
 
 	syncMeshes() {
