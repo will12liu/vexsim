@@ -156,7 +156,7 @@ export class AIRobot extends Robot {
 			const g = ai.target;
 			if (!g) {
 				// Every goal has a pin on top: put this one down and go stack a cup first.
-				if (kind === 'pin' && this.pickGoal('cup')) { const pin = this.claw; this.releasePin(pin, true); ai.ban.set(pin, this.t + 12); this.setState('fetch'); ai.target = null; }
+				if (kind === 'pin' && this.pickGoal('cup')) { const pin = this.claw; this.releaseClaw(true); ai.ban.set(pin, this.t + 12); this.setState('fetch'); ai.target = null; }
 				else this.park(p);
 				return;
 			}
@@ -269,7 +269,7 @@ export class AIRobot extends Robot {
 		const pos = W(g.fx, g.fy, cup ? surface + 0.3 + CUP_H / 2 : surface - PIN_COLLAR + 0.3 + PIN_H / 2);
 		pin.body.setTranslation({ x: pos.x, y: pos.y, z: pos.z }, true);
 		pin.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-		this.releasePin(pin, false);
+		this.releaseClaw(false, false);
 		this.field.assistDrop(pin);   // guided down onto the post (same goal-top funnel as the driver's drops)
 		return true;
 	}

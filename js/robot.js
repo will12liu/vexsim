@@ -114,13 +114,13 @@ export class Robot {
 		// Motors / mechanisms
 		this.leftCmd = 0; this.rightCmd = 0; this.brake = 'coast';
 		this.liftDeg = 0; this.liftMode = 'volt'; this.liftCmd = 0; this.liftTarget = 0; this.liftVel = CFG.LIFT_VELOCITY;
-		this.clawDeg = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG;   // tared at 0 at boot; driver control holds it at 25 this.clawVel = CFG.CLAW_TURN_DOWN_VELOCITY;
+		this.clawDeg = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG; this.clawVel = CFG.CLAW_TURN_DOWN_VELOCITY;   // claw tared at 0 at boot; driver control holds it at 25
 		this.clawSpin = 0; this.intakeCmd = 0; this.aux = false;
 		this.clawTurnHorizontal = false;
 		// Sensors
 		this.leftPos = 0; this.rightPos = 0; this.imuDeg = 0; this.t = 0;
 		// Pins
-		this.hopper = null; this.claw = null; this.transferT = 0; this.releaseT = 0;
+		this.hopper = null; this.claw = null; this.clawExtraPiece = null; this.clawRel = null; this.transferT = 0; this.releaseT = 0;
 		// opcontrol state
 		this.op = { inverse: 1, inverseScale: 1, intakeRunning: false, intakeReversed: false, cascadeIntake: false, clawIn: false, clawOut: false, r1: 0, clawState: 0, prev: {} };
 	}
@@ -133,8 +133,54 @@ export class Robot {
 		this.body.setRotation(q, true);
 		this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
 		this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-		for (const pin of [this.hopper, this.claw]) if (pin && (this.field.pins.includes(pin) || this.field.cups.includes(pin))) this.releasePin(pin, false);
+		for (const pin of [this.hopper, this.clawExtraPiece, this.claw]) if (pin && (this.field.pins.includes(pin) || this.field.cups.includes(pin))) this.releasePin(pin, false);
 		this.resetState();
+	}
+
+	// A pin sitting in a cup, or a cup sitting on a pin: grabbing one takes the other along (the claw
+	// holds the pair, e.g. pin + cup off the field together). Kept in place relative to the grabbed piece.
+	grabPartner(o) {
+		const isCup = this.field.cups.includes(o), to = o.body.translation(), ro = o.body.rotation();
+		const qo = new THREE.Quaternion(ro.x, ro.y, ro.z, ro.w);
+		let best = null, bd = Infinity;
+		for (const k of isCup ? this.field.pins : this.field.cups) {
+			if (k.held) continue;
+			const t = k.body.translation(), r = k.body.rotation();
+			const upright = Math.abs(1 - 2 * (r.x * r.x + r.z * r.z)) > 0.8;
+			const flat = Math.hypot(t.x - to.x, t.z - to.z) / IN, dy = Math.abs(t.y - to.y) / IN;
+			if (upright && flat < 1.3 && dy > 0.5 && dy < 5.5 && dy < bd) { bd = dy; best = k; }
+		}
+		if (!best) return;
+		const t = best.body.translation(), r = best.body.rotation(), inv = qo.clone().invert();
+		this.clawRel = {
+			pos: new THREE.Vector3(t.x - to.x, t.y - to.y, t.z - to.z).applyQuaternion(inv),
+			quat: inv.multiply(new THREE.Quaternion(r.x, r.y, r.z, r.w)),
+		};
+		this.attachPin(best, 'clawExtraPiece');
+	}
+
+	// The lower of the pieces in the claw (what has to fit the goal when placing).
+	clawBottom() {
+		const e = this.clawExtraPiece;
+		return e && e.body.translation().y < this.claw.body.translation().y ? e : this.claw;
+	}
+
+	// Let go of everything in the claw. assist: line it up on a goal it's over (see Field.assistDrop),
+	// moving a held pair together.
+	releaseClaw(keepVel = true, assist = false) {
+		const main = this.claw, extra = this.clawExtraPiece;
+		if (!main) return;
+		const bottom = this.clawBottom(), top = bottom === main ? extra : main;
+		const off = top ? new THREE.Vector3().copy(top.body.translation()).sub(bottom.body.translation()) : null;
+		if (extra) this.releasePin(extra, keepVel);
+		this.releasePin(main, keepVel);
+		this.clawRel = null;
+		if (!assist || !this.field.assistDrop(bottom) || !top) return;
+		const b = bottom.body.translation(), h = off.length();   // stack straight up over the seated bottom piece
+		top.body.setTranslation({ x: b.x, y: b.y + h, z: b.z }, true);
+		top.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+		top.body.setLinvel({ x: 0, y: 0, z: 0 }, true); top.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+		top.funnel = { ...bottom.funnel };
 	}
 
 	// Grip point (end of the claw frame) in world coordinates.
@@ -346,7 +392,7 @@ export class Robot {
 		} else this.transferT = 0;
 		// The claw as an intake: swung out and spinning the grab way, it picks up an upright pin or
 		// cup whose top is at the grip (off the floor, a goal or a stack). One piece at a time.
-		if (!this.claw && !this.hopper && this.clawSpin < -30 && this.clawDeg > 300) {
+		if (!this.claw && !this.hopper && this.clawSpin < -30 && this.clawDeg > 100) {
 			const g = this.clawGripWorld(), recent = new Set((this.justPlaced || []).map((r) => r.o));
 			for (const o of [...this.field.pins, ...this.field.cups]) {
 				if (o.held || recent.has(o)) continue;
@@ -356,7 +402,7 @@ export class Robot {
 				const upright = Math.abs(ax.y) > 0.8;
 				if (!upright && Math.abs(ax.y) > 0.5) continue;
 				const grab = new THREE.Vector3(t.x, t.y, t.z).addScaledVector(ax, upright ? Math.sign(ax.y) * (PIN_H / 2 - 1) * IN : 0);
-				if (Math.hypot(grab.x - g.x, grab.z - g.z) < 2 * IN && Math.abs(grab.y - g.y) < 2.5 * IN) { this.attachPin(o, 'claw'); break; }   // rollers reach ~2" around
+				if (Math.hypot(grab.x - g.x, grab.z - g.z) < 2 * IN && Math.abs(grab.y - g.y) < 2.5 * IN) { this.attachPin(o, 'claw'); this.grabPartner(o); break; }   // rollers reach ~2" around
 			}
 		}
 		// Scoring by going down: holding a piece out over a goal, lowering the lift until it seats
@@ -364,17 +410,18 @@ export class Robot {
 		this.clawHeldT = this.claw && this.claw === this.clawHeldObj ? this.clawHeldT + dt : 0;
 		this.clawHeldObj = this.claw;
 		if (this.claw && this.clawHeldT > 0.5 && (this.liftRate || 0) < -1 && Math.abs(this.clawDeg - CFG.CLAW_TURN_HORIZONTAL_DEG) < 200) {
-			const o = this.claw, s = this.field.seatFor(o), h = o.body.translation().y / IN;
+			const o = this.clawBottom(), s = this.field.seatFor(o), h = o.body.translation().y / IN;
 			if (s && h - PIN_H / 2 <= s.seatBottom + 0.4) {
-				this.releasePin(o, false); this.field.assistDrop(o);
-				(this.justPlaced ||= []).push({ o, t: 2 });
+				const both = [this.claw, this.clawExtraPiece].filter(Boolean);
+				this.releaseClaw(false, true);
+				for (const p of both) (this.justPlaced ||= []).push({ o: p, t: 2 });
 			}
 		}
 		if (this.justPlaced) this.justPlaced = this.justPlaced.filter((r) => (r.t -= dt) > 0);
 		// Spinning the claw the drop direction lets go of the pin.
 		if (this.claw && this.clawSpin > 30) {
 			this.releaseT += dt;
-			if (this.releaseT > 0.12) { const p = this.claw; this.releasePin(p, true); this.field.assistDrop(p); this.releaseT = 0; }
+			if (this.releaseT > 0.12) { this.releaseClaw(true, true); this.releaseT = 0; }
 		} else this.releaseT = 0;
 		// Move held pins.
 		const q = this.quat();
@@ -385,7 +432,16 @@ export class Robot {
 			pin.body.setNextKinematicRotation({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
 		};
 		if (this.hopper) pose(this.hopper, new THREE.Vector3(2.5, 4.5, 0), Math.PI / 2);   // lying flat on the ramp
-		if (this.claw) { const l = this.clawPinLocal(); pose(this.claw, l.pos, l.angle); }
+		if (this.claw) {
+			const l = this.clawPinLocal(); pose(this.claw, l.pos, l.angle);
+			const e = this.clawExtraPiece, rel = this.clawRel;
+			if (e && rel) {   // stacked partner (cup under the pin / cup on top) rides along rigidly
+				const mq = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(Z, l.angle)), mp = this.toWorld(l.pos.x, l.pos.y, l.pos.z);
+				const p = rel.pos.clone().applyQuaternion(mq).add(mp), rq = mq.clone().multiply(rel.quat);
+				e.body.setNextKinematicTranslation(p);
+				e.body.setNextKinematicRotation({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
+			}
+		}
 	}
 
 	syncMesh(dt) {

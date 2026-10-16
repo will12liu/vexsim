@@ -101,7 +101,7 @@ function placeAtStart() {
 
 function resetField() {
 	stopAuton();
-	for (const r of [robot, ...ais]) r.hopper = r.claw = null;
+	for (const r of [robot, ...ais]) r.hopper = r.claw = r.clawExtraPiece = null;
 	field.reset();
 	placeAtStart();
 	sim.final = null;
@@ -282,7 +282,7 @@ function updateHud(score) {
 	}).join('');
 	$('detail').textContent = `Pins placed ${s.placedPins} · halves R${s.halves.red} B${s.halves.blue} Y→R${s.halves.yellowRed} Y→B${s.halves.yellowBlue} `;
 	const clawState = robot.clawDeg < 240 ? 'down' : robot.clawDeg < 680 ? 'lift (450)' : robot.clawDeg < 1120 ? '90°' : 'highest';
-	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
+	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') + (robot.clawExtraPiece ? ' + ' + (robot.clawExtraPiece.kind === 'cup' ? 'cup' : 'pin') : '') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
 		`Drive ${robot.op.inverse > 0 ? 'normal' : 'INVERTED'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	$('source').textContent = input.source;
 }
