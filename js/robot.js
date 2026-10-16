@@ -211,8 +211,13 @@ export class Robot {
 		const a = this.clawArmAngle();
 		const pivotY = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
 		const gx = -6.5 - CFG.clawArm * Math.sin(a), gy = pivotY - CFG.clawArm * Math.cos(a);
-		const off = PIN_H / 2 - 1;
-		return { pos: new THREE.Vector3(gx + Math.cos(a) * off, gy - Math.sin(a) * off, 0), angle: Math.PI / 2 - a };
+		const off = PIN_H / 2 - 1, angle = Math.PI / 2 - a;
+		const pos = new THREE.Vector3(gx + Math.cos(a) * off, gy - Math.sin(a) * off, 0);
+		// The claw hangs down to near the floor: keep the held piece resting on top of the floor
+		// (and the base plate) instead of sinking into it.
+		const lowest = pos.y - Math.abs(Math.cos(angle)) * (PIN_H / 2) - Math.abs(Math.sin(angle)) * 1.58;
+		if (lowest < 0.3) pos.y += 0.3 - lowest;
+		return { pos, angle };
 	}
 
 	attachPin(pin, slot) {
@@ -347,8 +352,10 @@ export class Robot {
 				if (o.held || recent.has(o)) continue;
 				const t = o.body.translation(), r = o.body.rotation();
 				const ax = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(r.x, r.y, r.z, r.w));
-				if (Math.abs(ax.y) < 0.8) continue;   // only upright pieces
-				const grab = new THREE.Vector3(t.x, t.y, t.z).addScaledVector(ax, Math.sign(ax.y) * (PIN_H / 2 - 1) * IN);
+				// Upright pieces are gripped near the top; lying ones (on the floor) round the middle.
+				const upright = Math.abs(ax.y) > 0.8;
+				if (!upright && Math.abs(ax.y) > 0.5) continue;
+				const grab = new THREE.Vector3(t.x, t.y, t.z).addScaledVector(ax, upright ? Math.sign(ax.y) * (PIN_H / 2 - 1) * IN : 0);
 				if (Math.hypot(grab.x - g.x, grab.z - g.z) < 2 * IN && Math.abs(grab.y - g.y) < 2.5 * IN) { this.attachPin(o, 'claw'); break; }   // rollers reach ~2" around
 			}
 		}

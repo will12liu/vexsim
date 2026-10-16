@@ -208,11 +208,14 @@ function renderControls() {
 }
 function showControls(on) { renderControls(); $('controls').hidden = !on; }
 $('btnHelp').onclick = () => { $('btnHelp').blur(); showControls(true); };
-$('btnHelpClose').onclick = () => showControls(false);
+$('btnHelpClose').onclick = () => { input.cancelSetup(); showControls(false); };
+$('btnPadSetup').onclick = () => { $('btnPadSetup').blur(); input.startSetup((m) => { $('padSetupMsg').textContent = m; }, () => toast('CONTROLLER SET')); };
+$('btnPadReset').onclick = () => { $('btnPadReset').blur(); input.clearMap(); $('padSetupMsg').textContent = 'Back to the default layout.'; };
 $('controls').onclick = (e) => { if (e.target.id === 'controls') showControls(false); };
 addEventListener('keydown', (e) => {
 	if (e.target.closest?.('textarea, input, select')) return;
 	if (e.key === '?' || e.code === 'F1') { e.preventDefault(); showControls($('controls').hidden); }
+	if (e.code === 'Escape' && input.setup) { input.cancelSetup(); return; }
 	if (e.code === 'Escape') { if (!$('controls').hidden) showControls(false); else if (sim.menu && sim.game) { sim.menu = false; $('menu').hidden = true; document.body.classList.remove('menu-open'); } else showMenu(); }
 });
 setCam('driver');
@@ -355,4 +358,4 @@ fetch('routine.cpp', { cache: 'no-cache' }).then((r) => (r.ok ? r.text() : null)
 	for (; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && --d === 0) break; }
 	$('routine').value = src.slice(i, k + 1) + '\n';
 }).catch(() => {});
-window.sim = { robot, ais, startGame, showMenu, field, world, sim, toField, IN, advance, resetField, startAuton, $, camera, controls, setCam };   // for debugging in the console
+window.sim = { robot, ais, startGame, showMenu, input, field, world, sim, toField, IN, advance, resetField, startAuton, $, camera, controls, setCam };   // for debugging in the console

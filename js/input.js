@@ -20,6 +20,14 @@ const KEYS = {
 const DEAD = 0.12;
 const dz = (a = 0) => (Math.abs(a) < DEAD ? 0 : (Math.sign(a) * (Math.abs(a) - DEAD)) / (1 - DEAD));
 
+const SETUP_STEPS = [
+	['ly', 'Push the LEFT stick UP (drive)'], ['rx', 'Push the RIGHT stick RIGHT (turn)'],
+	['L1', 'Press what you want as L1 (lift up)'], ['L2', 'Press L2 (lift down)'],
+	['R1', 'Press R1 (intake)'], ['R2', 'Press R2 (reverse intake + claw)'],
+	['A', 'Press A (claw spin in / drop)'], ['B', 'Press B (claw flip)'], ['X', 'Press X'], ['Y', 'Press Y (claw spin out)'],
+	['Up', 'Press D-pad UP (invert drive)'], ['Down', 'Press D-pad DOWN (run auton)'], ['Left', 'Press D-pad LEFT'], ['Right', 'Press D-pad RIGHT'],
+];
+
 export class Input {
 	constructor() {
 		this.keys = new Set();
@@ -32,6 +40,51 @@ export class Input {
 		});
 		addEventListener('keyup', (e) => this.keys.delete(e.code));
 		addEventListener('blur', () => this.keys.clear());
+	}
+
+	// ---- Controller setup: press each V5 control once; saved per controller (by its id) ----------
+	loadMap(id) {
+		if (this.mapCache?.id === id) return this.mapCache.map;
+		let map = null;
+		try { map = JSON.parse(localStorage.getItem('padmap:' + id) || 'null'); } catch { /* storage blocked */ }
+		this.mapCache = { id, map };
+		return map;
+	}
+	clearMap() {
+		const g = this.gamepad();
+		if (g) try { localStorage.removeItem('padmap:' + g.id); } catch { /* storage blocked */ }
+		this.mapCache = null;
+	}
+	startSetup(onMsg, onDone) {
+		const g = this.gamepad();
+		if (!g) { onMsg('No controller found: click the page and press any button on it first'); return; }
+		this.setup = { steps: SETUP_STEPS.slice(), map: {}, onMsg, onDone, wait: true, base: null };
+		this.promptSetup();
+	}
+	promptSetup() { const s = this.setup; s.onMsg(`${SETUP_STEPS.length - s.steps.length + 1}/${SETUP_STEPS.length}: ${s.steps[0][1]}  (Esc = cancel)`); }
+	cancelSetup() { if (this.setup) { this.setup.onMsg('Setup cancelled'); this.setup = null; } }
+	stepSetup(g) {
+		const s = this.setup, axes = [...g.axes], btn = g.buttons.map((b) => b.pressed || b.value > 0.5);
+		const idle = !btn.some(Boolean) && (!s.rest || axes.every((v, i) => Math.abs(v - s.rest[i]) < 0.35));
+		if (s.wait) { if (idle) { s.wait = false; s.rest ||= axes; } return; }   // let go of everything between steps
+		const [key] = s.steps[0];
+		let hit = null;
+		const b = btn.findIndex(Boolean);
+		if (b >= 0) hit = { t: 'b', i: b };
+		else {
+			let best = -1, big = 0.6;
+			axes.forEach((v, i) => { const d = v - s.rest[i]; if (Math.abs(d) > big) { big = Math.abs(d); best = i; } });
+			if (best >= 0) hit = { t: 'a', i: best, s: Math.sign(axes[best] - s.rest[best]) };   // sign: this direction reads +
+		}
+		if (!hit) return;
+		if ((key === 'ly' || key === 'rx') && hit.t !== 'a') return;   // sticks must be axes
+		s.map[key] = hit;
+		s.steps.shift(); s.wait = true;
+		if (s.steps.length) return this.promptSetup();
+		try { localStorage.setItem('padmap:' + g.id, JSON.stringify(s.map)); } catch { /* storage blocked: works until reload */ }
+		this.mapCache = { id: g.id, map: s.map };
+		s.onMsg('Saved. Your controller now matches the V5 buttons.');
+		s.onDone?.(); this.setup = null;
 	}
 
 	gamepad() {
@@ -64,7 +117,15 @@ export class Input {
 			if (Math.abs(s.rx) > Math.abs(c.rx)) c.rx = s.rx;
 			for (const k of Object.keys(KEYS)) c[k] = c[k] || s[k];
 		};
-		if (g) {
+		if (g && this.setup) { this.stepSetup(g); return { ly: 0, rx: 0 }; }   // controller setup running: robot stays still
+		const custom = g && this.loadMap(g.id);
+		if (g && custom) {
+			// Saved mapping from "Set up my controller": each V5 control -> a button or an axis.
+			const read = (m) => (!m ? 0 : m.t === 'b' ? (g.buttons[m.i]?.value ?? (g.buttons[m.i]?.pressed ? 1 : 0)) : (g.axes[m.i] || 0) * m.s);
+			const st = { ly: Math.round(dz(read(custom.ly)) * 127), rx: Math.round(dz(read(custom.rx)) * 127) };
+			for (const k of Object.keys(KEYS)) st[k] = read(custom[k]) > 0.5;
+			merge(st);
+		} else if (g) {
 			const b = (i) => !!(g.buttons[i] && (g.buttons[i].pressed || g.buttons[i].value > 0.5));
 			const face = FACE[this.layout];
 			merge({
