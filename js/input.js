@@ -58,7 +58,7 @@ export class Input {
 		this.krx = ramp(this.krx || 0, ((has('KeyD') ? 127 : 0) - (has('KeyA') ? 127 : 0)) * half, 500);
 		c.ly = Math.round(this.kly); c.rx = Math.round(this.krx);
 		const g = this.gamepad();
-		this.source = this.external ? 'V5 controller (USB)' : g ? `Gamepad: ${g.id.slice(0, 40)}` : 'Keyboard';
+		this.source = this.external ? 'V5 controller (USB)' : this.hidPad ? `Controller (direct USB): ${this.hidName}` : g ? `Gamepad: ${g.id.slice(0, 40)}` : 'Keyboard';
 		const merge = (s) => {
 			if (Math.abs(s.ly) > Math.abs(c.ly)) c.ly = s.ly;
 			if (Math.abs(s.rx) > Math.abs(c.rx)) c.rx = s.rx;
@@ -74,6 +74,7 @@ export class Input {
 				Up: b(12), Down: b(13), Left: b(14), Right: b(15),
 			});
 		}
+		if (this.hidPad) merge(this.hidPad);
 		if (this.external) merge(this.external);
 		return c;
 	}

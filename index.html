@@ -99,7 +99,7 @@
     <label class="f">Xbox buttons<select id="layout"><option value="position">Same position as V5</option><option value="letter">Same letters as V5</option></select></label>
   </div>
   <div class="row"><label class="muted"><input type="checkbox" id="invY"> Invert drive stick</label><label class="muted"><input type="checkbox" id="invX"> Invert turn stick</label></div>
-  <div class="row"><button id="btnV5">Connect V5 controller (USB)</button></div>
+  <div class="row"><button id="btnV5">Connect V5 controller (USB)</button><button id="btnPad" title="For USB controllers the browser does not pick up by itself">Connect other controller</button></div>
   <div class="row muted">Input: <span id="source"></span></div>
   <div class="row muted" id="detail"></div>
 </details></div>
@@ -157,6 +157,7 @@ void run_routine() {
     <label class="f">Your start<select id="mStart"><option value="red1">Red 1 Toggle</option><option value="red2">Red 2 Toggle</option><option value="blue1">Blue 1 Toggle</option><option value="blue2">Blue 2 Toggle</option></select></label>
     <label class="f">AI skill<select id="mSkill"><option value="0.6">Rookie</option><option value="0.8" selected>Regular</option><option value="1">Pro</option></select></label>
     <button id="mControls">Controls</button>
+    <button id="mPad" title="For USB controllers the browser does not pick up by itself">Connect controller</button>
   </div>
   <div class="hint">Click a mode, press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>, or use the D-pad + A on a controller. <kbd>Esc</kbd> brings this menu back.</div>
 </div></div>

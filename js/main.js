@@ -8,6 +8,7 @@ import { AIRobot } from './ai.js';
 import { Input } from './input.js';
 import { makeAuton } from './auton.js';
 import { connectV5 } from './v5serial.js';
+import { connectSwitchPad, hidSupported } from './switchhid.js';
 
 await RAPIER.init();
 const $ = (id) => document.getElementById(id);
@@ -169,6 +170,10 @@ $('btnReset').onclick = () => { resetField(); $('btnReset').blur(); };
 $('btnAuton').onclick = () => { if (sim.mode === 'practice') { stopAuton(); startAuton(true); } $('btnAuton').blur(); };
 $('btnStop').onclick = () => stopAuton();
 $('btnV5').onclick = () => { $('btnV5').blur(); connectV5(input, toast); };
+// Controllers Chrome doesn't pick up by itself (e.g. Switch-Pro-style knockoffs): talk to them directly.
+for (const id of ['btnPad', 'mPad']) $(id).onclick = () => { $(id).blur(); connectSwitchPad(input, toast); };
+if (hidSupported()) connectSwitchPad(input, toast, { ask: false }).catch(() => {});   // reconnect one picked before
+else for (const id of ['btnPad', 'mPad']) $(id).hidden = true;
 $('layout').onchange = (e) => { input.layout = e.target.value; };
 $('alliance').onchange = () => resetField();
 $('start').onchange = () => { $('alliance').value = $('start').value.startsWith('red') ? 'red' : 'blue'; resetField(); };
