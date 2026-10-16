@@ -300,7 +300,16 @@ export class Field {
 			grp.add(slot);
 		}
 		scene.add(grp);
-		this.goals.push({ ...g, H, base, quad: quadrantOf(g.fx, g.fy) });
+		const quad = quadrantOf(g.fx, g.fy);
+		this.goals.push({ ...g, H, base, quad });
+		if (quad !== 'mid') {   // floor ring in the colour that owns yellow pins on this goal
+			const ringMat = new THREE.MeshBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.85 });
+			const ring = new THREE.Mesh(new THREE.RingGeometry(5 * IN, 6.4 * IN, 40), ringMat);
+			ring.rotation.x = -Math.PI / 2;
+			ring.position.copy(W(g.fx, g.fy, 0.06));
+			this.scene.add(ring);
+			(this.ownerRings ||= []).push({ quad, mat: ringMat });
+		}
 	}
 
 	// Triangular prism on the wall top. Only rotates about its long axis, which is
@@ -335,7 +344,13 @@ export class Field {
 		}
 		const base = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(axis, up, n.clone().negate()));
 		scene.add(grp);
-		this.toggles.push({ ...t, body, col, grp, base, axis, nWorld: n, alpha: 0, index: 0, touching: false, state: 'yellow', set: true });
+		// Owner light: a bar along the wall above the Toggle, lit in the colour that owns this quarter.
+		const lightMat = new THREE.MeshStandardMaterial({ color: 0x555555, emissive: 0x000000, roughness: 0.4 });
+		const light = new THREE.Mesh(new THREE.BoxGeometry(TOGGLE.len * IN, 1.2 * IN, 1.2 * IN), lightMat);
+		light.position.copy(W(t.fx - t.n[0] * 1.2, t.fy - t.n[1] * 1.2, TOGGLE.axisH + 3.4));
+		light.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis.clone().normalize());
+		scene.add(light);
+		this.toggles.push({ ...t, body, col, grp, base, axis, nWorld: n, alpha: 0, index: 0, touching: false, state: 'yellow', set: true, ownerMats: [lightMat] });
 	}
 
 	// Each separate hit from the robot (driving toward the wall) advances the Toggle one
@@ -371,7 +386,9 @@ export class Field {
 			const q = new THREE.Quaternion().setFromAxisAngle(tg.axis, tg.alpha);
 			tg.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
 			tg.set = Math.abs(target - tg.alpha) < 0.02 && !touching;
-			tg.state = tg.set ? toggleFaces(tg.quad)[((tg.index % 3) + 3) % 3] : 'yellow';
+			// Ownership changes only once the Toggle has settled on a new face; touching it or the turn
+			// itself doesn't flash it back to yellow (that made the score jump around).
+			if (tg.set) tg.state = toggleFaces(tg.quad)[((tg.index % 3) + 3) % 3];
 		}
 	}
 
@@ -539,7 +556,19 @@ export class Field {
 		return false;
 	}
 
+	// Light bars + goal rings show who owns each quarter (yellow face = nobody: grey).
+	syncOwners() {
+		const col = { red: 0xd62828, blue: 0x1e6fd9 };
+		for (const tg of this.toggles) {
+			const c = col[tg.state];
+			for (const m of tg.ownerMats) { m.color.setHex(c ?? 0x555555); m.emissive.setHex(c ?? 0x000000); m.emissiveIntensity = c ? 0.9 : 0; }
+		}
+		const owner = Object.fromEntries(this.toggles.map((t) => [t.quad, t.state]));
+		for (const r of this.ownerRings || []) r.mat.color.setHex(col[owner[r.quad]] ?? 0x5a5a5a);
+	}
+
 	syncMeshes() {
+		this.syncOwners();
 		for (const o of [...this.pins, ...this.cups]) {
 			const t = o.body.translation(), r = o.body.rotation();
 			o.mesh.position.set(t.x, t.y, t.z);

@@ -196,7 +196,7 @@ function renderControls() {
 		['Lift down', k('L2'), k('LT'), k('G')],
 		['Intake cycle', k('R1'), k('RB'), k('E'), '1st: intake + claw grabs + cascade to intake height · 2nd: claw spin only · 3rd: off'],
 		['Reverse intake + claw spin', k('R2'), k('RT'), k('Q'), 'Toggle: spits out of the intake and lets go of the claw'],
-		['Claw flip', k('B'), k(x.B), k('B'), 'Vertical → highest (135°) → slanted (45°) → horizontal (90°, pin hangs over goal) → vertical'],
+		['Claw flip', k('B'), k(x.B), k('B'), '1st: slanted · 2nd: 90° (pin hangs over the goal) · 3rd: down'],
 		['Claw spin in / drop pin', k('A'), k(x.A), k('F'), 'Toggle. Spinning this way lets go of the pin'],
 		['Claw spin out', k('Y'), k(x.Y), k('Y'), 'Toggle'],
 		['X (not used yet)', k('X'), k(x.X), k('X')],
@@ -258,16 +258,30 @@ function updateCamera() {
 
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const dot = (c) => `<span class="dot ${c}"></span>`;
+// The scoreboard only changes once a new score has held for half a second, so a pin wobbling on
+// the edge of a goal (or a piece mid-bounce) doesn't make the numbers flicker.
+let shown = null, pending = null, pendingAt = 0;
+function steadyScore(sc) {
+	const now = performance.now(), same = (a, b) => a && a.red === b.red && a.blue === b.blue;
+	if (!shown || sim.menu) { shown = sc; return sc; }
+	if (same(shown, sc)) { pending = null; shown = sc; return sc; }
+	if (!same(pending, sc)) { pending = sc; pendingAt = now; }
+	if (now - pendingAt > 500) { shown = sc; pending = null; }
+	return { ...sc, red: shown.red, blue: shown.blue };
+}
 function updateHud(score) {
 	const label = { practice: 'PRACTICE', auton: 'AUTONOMOUS', driver: 'DRIVER', ended: 'MATCH OVER' }[sim.mode];
 	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '') + (robot.op.inverse < 0 ? ' · INVERTED' : '');
 	$('clock').textContent = sim.mode === 'practice' ? '--:--' : fmtClock(Math.max(0, sim.clock));
-	const s = sim.final || score;
+	const s = sim.final || steadyScore(score);
 	$('red').textContent = s.red; $('blue').textContent = s.blue;
-	$('toggles').innerHTML = ['red1', 'red2', 'blue1', 'blue2'].map((q) => `<span>${q.replace('red', 'R').replace('blue', 'B')}${dot(s.toggles[q])}</span>`).join('');
+	// Who owns each quarter's yellow pins (same colours as the light bars on the wall and the goal rings).
+	$('toggles').innerHTML = ['red1', 'red2', 'blue1', 'blue2'].map((q) => {
+		const own = s.toggles[q], name = q.replace(/(\d)/, ' $1').toUpperCase();
+		return `<span class="tg own-${own}" title="${name} Toggle: yellow pins in this quarter score for ${own === 'yellow' ? 'nobody' : own}">${name}<b>${own === 'yellow' ? '—' : own.toUpperCase()}</b></span>`;
+	}).join('');
 	$('detail').textContent = `Pins placed ${s.placedPins} · halves R${s.halves.red} B${s.halves.blue} Y→R${s.halves.yellowRed} Y→B${s.halves.yellowBlue} `;
-	const st = ['vertical', 'horizontal', 'lifted'];
-	const clawState = robot.clawDeg < 240 ? 'vertical' : robot.clawDeg < 680 ? 'slanted' : robot.clawDeg < 1120 ? 'horizontal' : 'highest';
+	const clawState = robot.clawDeg < 450 ? 'down' : robot.clawDeg < 1120 ? '90°' : 'slanted';
 	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
 		`Drive ${robot.op.inverse > 0 ? 'normal' : 'INVERTED'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	void st;

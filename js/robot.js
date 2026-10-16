@@ -21,7 +21,7 @@ export const CFG = {
 	turnScrub: 0.5,                     // N*m per rad/s omni scrub while turning (tops out ~300 deg/s)
 	sideGrip: 1.0,                      // how hard the wheels resist sliding sideways (1 = full tile grip)
 	mu: 1.0,                            // omni wheel grip on foam tiles
-	// mechanisms.h (10/15): B cycles vertical -> highest -> slanted -> horizontal -> vertical
+	// mechanisms.h: B cycles slanted (HIGHEST) -> horizontal -> vertical (opcontrol.cpp 10/16)
 	CLAW_TURN_VERTICAL_DEG: 25, CLAW_TURN_HORIZONTAL_DEG: 900, CLAW_LIFT_FRACTION: 0.25,
 	CASCADE_INTAKE_DEG: 180,            // R1 sends the cascade here to intake (claw side), at velocity 45
 	CLAW_TURN_VELOCITY: 200, CLAW_TURN_DOWN_VELOCITY: 100,
@@ -447,10 +447,10 @@ export class Robot {
 		if (newPress('A')) { o.clawIn = !o.clawIn; o.clawOut = false; }
 		if (newPress('Y')) { o.clawOut = !o.clawOut; o.clawIn = false; }
 		this.clawSpin = o.intakeReversed ? 127 : o.clawIn ? 45 : o.clawOut ? -127 : 0;
-		// Claw turn: B cycles vertical -> highest -> slanted -> horizontal -> vertical.
+		// Claw turn: B cycles slanted -> horizontal (90) -> down.
 		if (newPress('B')) {
-			o.clawState = (o.clawState + 1) % 4;
-			this.clawTarget = [CFG.CLAW_TURN_VERTICAL_DEG, CFG.CLAW_TURN_HIGHEST_DEG, CFG.CLAW_TURN_LIFT_DEG, CFG.CLAW_TURN_HORIZONTAL_DEG][o.clawState];
+			o.clawState = (o.clawState + 1) % 3;   // slanted -> 90 -> down
+			this.clawTarget = [CFG.CLAW_TURN_VERTICAL_DEG, CFG.CLAW_TURN_HIGHEST_DEG, CFG.CLAW_TURN_HORIZONTAL_DEG][o.clawState];
 			this.clawTurnHorizontal = o.clawState !== 0;
 		}
 		this.clawVel = this.clawTurnHorizontal ? CFG.CLAW_TURN_VELOCITY : CFG.CLAW_TURN_DOWN_VELOCITY;
