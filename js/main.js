@@ -199,7 +199,7 @@ function renderControls() {
 		['Claw flip', k('B'), k(x.B), k('B'), 'Like opcontrol.cpp: 1st highest (1350) · 2nd lift (450) · 3rd 90° (900, pin hangs over the goal) · 4th down'],
 		['Claw spin in / drop pin', k('A'), k(x.A), k('F'), 'Toggle. Spinning this way lets go of the pin'],
 		['Claw spin out', k('Y'), k(x.Y), k('Y'), 'Toggle'],
-		['X (not used yet)', k('X'), k(x.X), k('X')],
+		['Claw straight to 90° / back down', k('X'), k(x.X), k('X'), 'One press flips to 90°, again goes back to rest (skips the B positions)'],
 		['Invert drive (claw side = front)', k('↑'), 'D-pad ↑', k('↑'), 'Stick up drives claw first; turning unchanged. Shows INVERTED on the scoreboard'],
 		['Run auton (practice only)', k('↓'), 'D-pad ↓', k('↓')],
 		['E-stop a running auton test', k('L1') + '+' + k('R1'), k('LB') + '+' + k('RB'), k('R') + '+' + k('E')],

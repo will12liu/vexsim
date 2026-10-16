@@ -509,6 +509,12 @@ export class Robot {
 			this.clawTarget = [CFG.CLAW_TURN_VERTICAL_DEG, CFG.CLAW_TURN_HIGHEST_DEG, CFG.CLAW_TURN_LIFT_DEG, CFG.CLAW_TURN_HORIZONTAL_DEG][o.clawState];
 			this.clawTurnHorizontal = o.clawState !== 0;
 		}
+		// X: one flip straight to 90, X again back down to rest (same state as B: 3 = horizontal).
+		if (newPress('X')) {
+			o.clawState = o.clawState !== 3 ? 3 : 0;
+			this.clawTarget = o.clawState === 3 ? CFG.CLAW_TURN_HORIZONTAL_DEG : CFG.CLAW_TURN_VERTICAL_DEG;
+			this.clawTurnHorizontal = o.clawState !== 0;
+		}
 		this.clawVel = this.clawTurnHorizontal ? CFG.CLAW_TURN_VELOCITY : CFG.CLAW_TURN_DOWN_VELOCITY;
 		o.prev = { ...c };
 	}
