@@ -159,6 +159,15 @@ export class Robot {
 		this.attachPin(best, 'clawExtraPiece');
 	}
 
+	// Which way round a piece goes in: pins and cups aren't symmetric (pin colours, the cup's
+	// opaque half), so the end that comes in first stays first. flipped = held the other way
+	// round from the default pose (the pose at robot-local rotation `angle` about Z).
+	decideFlip(o, angle) {
+		const def = new THREE.Vector3(0, 1, 0).applyQuaternion(this.quat().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), angle)));
+		const r = o.body.rotation(), act = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(r.x, r.y, r.z, r.w));
+		o.flipped = def.dot(act) < 0;
+	}
+
 	// The lower of the pieces in the claw (what has to fit the goal when placing).
 	clawBottom() {
 		const e = this.clawExtraPiece;
@@ -178,7 +187,7 @@ export class Robot {
 		if (!assist || !this.field.assistDrop(bottom) || !top) return;
 		const b = bottom.body.translation(), h = off.length();   // stack straight up over the seated bottom piece
 		top.body.setTranslation({ x: b.x, y: b.y + h, z: b.z }, true);
-		top.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+		top.body.setRotation(bottom.body.rotation(), true);
 		top.body.setLinvel({ x: 0, y: 0, z: 0 }, true); top.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
 		top.funnel = { ...bottom.funnel };
 	}
@@ -277,6 +286,7 @@ export class Robot {
 		const slot = pin.held;
 		if (slot) this[slot] = null;
 		pin.held = null;
+		pin.flipped = false;
 		pin.body.setBodyType(this.R.RigidBodyType.Dynamic, true);
 		// Briefly ignore the claw frame so a piece let go from the grip can drop out of it.
 		for (const c of colsOf(pin)) c.setCollisionGroups(groups(0xffff & ~GROUP.claw, 0xffff & ~GROUP.claw));
@@ -375,13 +385,14 @@ export class Robot {
 		if (this.justReleased) this.justReleased = this.justReleased.filter((r) => r.t > 0);
 		// Intake: grab a pin or cup sitting in front of the rollers. One piece at a time: nothing is
 		// picked up while the robot already holds one (in the intake or the claw).
-		if (this.intakeCmd > 30 && !this.hopper && !this.claw) {
+		// The claw has to be at its starting position (down) or the piece jams: nothing is taken in.
+		if (this.intakeCmd > 30 && !this.hopper && !this.claw && this.clawDeg < 150) {
 			for (const pin of [...this.field.pins, ...this.field.cups]) {   // cups go through the same way as pins
 				if (pin.held) continue;
 				const f = toField(pin.body.translation());
 				if (this.field.goals.some((g) => Math.hypot(f.fx - g.fx, f.fy - g.fy) < 2.5 && f.h > g.base)) continue;   // seated on a post
 				const l = this.toLocal(new THREE.Vector3().copy(pin.body.translation()));
-				if (l.x > CFG.length / 2 - 3 && l.x < CFG.length / 2 + 4.5 && Math.abs(l.z) < 5 && l.y < 8) { this.attachPin(pin, 'hopper'); break; }
+				if (l.x > CFG.length / 2 - 3 && l.x < CFG.length / 2 + 4.5 && Math.abs(l.z) < 5 && l.y < 8) { this.decideFlip(pin, Math.PI / 2); this.attachPin(pin, 'hopper'); break; }
 			}
 		}
 		if (this.intakeCmd < -30 && this.hopper) this.releasePin(this.hopper, true, 1.2);
@@ -402,7 +413,7 @@ export class Robot {
 				const upright = Math.abs(ax.y) > 0.8;
 				if (!upright && Math.abs(ax.y) > 0.5) continue;
 				const grab = new THREE.Vector3(t.x, t.y, t.z).addScaledVector(ax, upright ? Math.sign(ax.y) * (PIN_H / 2 - 1) * IN : 0);
-				if (Math.hypot(grab.x - g.x, grab.z - g.z) < 2 * IN && Math.abs(grab.y - g.y) < 2.5 * IN) { this.attachPin(o, 'claw'); this.grabPartner(o); break; }   // rollers reach ~2" around
+				if (Math.hypot(grab.x - g.x, grab.z - g.z) < 2 * IN && Math.abs(grab.y - g.y) < 2.5 * IN) { this.decideFlip(o, this.clawPinLocal().angle); this.attachPin(o, 'claw'); this.grabPartner(o); break; }   // rollers reach ~2" around
 			}
 		}
 		// Scoring by going down: holding a piece out over a goal, lowering the lift until it seats
@@ -431,9 +442,10 @@ export class Robot {
 			pin.body.setNextKinematicTranslation(this.toWorld(l.x, l.y, l.z));
 			pin.body.setNextKinematicRotation({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
 		};
-		if (this.hopper) pose(this.hopper, new THREE.Vector3(2.5, 4.5, 0), Math.PI / 2);   // lying flat on the ramp
+		const flip = (o) => (o.flipped ? Math.PI : 0);   // held the other way round (bottom end first)
+		if (this.hopper) pose(this.hopper, new THREE.Vector3(2.5, 4.5, 0), Math.PI / 2 + flip(this.hopper));   // lying flat on the ramp
 		if (this.claw) {
-			const l = this.clawPinLocal(); pose(this.claw, l.pos, l.angle);
+			const l = this.clawPinLocal(); l.angle += flip(this.claw); pose(this.claw, l.pos, l.angle);
 			const e = this.clawExtraPiece, rel = this.clawRel;
 			if (e && rel) {   // stacked partner (cup under the pin / cup on top) rides along rigidly
 				const mq = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(Z, l.angle)), mp = this.toWorld(l.pos.x, l.pos.y, l.pos.z);

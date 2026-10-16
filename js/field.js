@@ -548,7 +548,9 @@ export class Field {
 			const p = W(aim.fx, aim.fy, Math.max(t.h, surface + PIN_H / 2));
 			o.body.setTranslation({ x: p.x, y: p.y, z: p.z }, true);
 			o.funnel = { x: p.x, z: p.z, t: 1.5 };
-			o.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+			// Stand it up straight but keep it the way round it was (upside-down stays upside-down).
+			const rr = o.body.rotation(), upY = 1 - 2 * (rr.x * rr.x + rr.z * rr.z);
+			o.body.setRotation(upY >= 0 ? { x: 0, y: 0, z: 0, w: 1 } : { x: 1, y: 0, z: 0, w: 0 }, true);
 			o.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
 			o.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
 			return true;
