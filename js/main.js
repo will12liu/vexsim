@@ -284,7 +284,6 @@ function updateHud(score) {
 	const clawState = robot.clawDeg < 450 ? 'down' : robot.clawDeg < 1120 ? '90°' : 'slanted';
 	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
 		`Drive ${robot.op.inverse > 0 ? 'normal' : 'INVERTED'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
-	void st;
 	$('source').textContent = input.source;
 }
 
@@ -335,7 +334,8 @@ function tick(now) {
 	for (const r of active()) r.syncMesh(frameDt);
 	updateTags();
 	updateCamera();
-	if (frame++ % 6 === 0) { score = field.score(mid()); updateHud(score); }
+	// A bug in the scoreboard must never stop the field from being drawn.
+	if (frame++ % 6 === 0) { try { score = field.score(mid()); updateHud(score); } catch (e) { if (!tick.warned) { console.error(e); tick.warned = true; } } }
 	renderer.render(scene, camera);
 	requestAnimationFrame(tick);
 }
