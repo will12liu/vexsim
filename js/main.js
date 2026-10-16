@@ -196,7 +196,7 @@ function renderControls() {
 		['Lift down', k('L2'), k('LT'), k('G')],
 		['Intake cycle', k('R1'), k('RB'), k('E'), '1st: intake + claw grabs + cascade to intake height · 2nd: claw spin only · 3rd: off'],
 		['Reverse intake + claw spin', k('R2'), k('RT'), k('Q'), 'Toggle: spits out of the intake and lets go of the claw'],
-		['Claw flip', k('B'), k(x.B), k('B'), '1st: slanted · 2nd: 90° (pin hangs over the goal) · 3rd: down'],
+		['Claw flip', k('B'), k(x.B), k('B'), 'Like opcontrol.cpp: 1st highest (1350) · 2nd lift (450) · 3rd 90° (900, pin hangs over the goal) · 4th down'],
 		['Claw spin in / drop pin', k('A'), k(x.A), k('F'), 'Toggle. Spinning this way lets go of the pin'],
 		['Claw spin out', k('Y'), k(x.Y), k('Y'), 'Toggle'],
 		['X (not used yet)', k('X'), k(x.X), k('X')],
@@ -281,7 +281,7 @@ function updateHud(score) {
 		return `<span class="tg own-${own}" title="${name} Toggle: yellow pins in this quarter score for ${own === 'yellow' ? 'nobody' : own}">${name}<b>${own === 'yellow' ? '—' : own.toUpperCase()}</b></span>`;
 	}).join('');
 	$('detail').textContent = `Pins placed ${s.placedPins} · halves R${s.halves.red} B${s.halves.blue} Y→R${s.halves.yellowRed} Y→B${s.halves.yellowBlue} `;
-	const clawState = robot.clawDeg < 450 ? 'down' : robot.clawDeg < 1120 ? '90°' : 'slanted';
+	const clawState = robot.clawDeg < 240 ? 'down' : robot.clawDeg < 680 ? 'lift (450)' : robot.clawDeg < 1120 ? '90°' : 'highest';
 	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
 		`Drive ${robot.op.inverse > 0 ? 'normal' : 'INVERTED'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	$('source').textContent = input.source;
