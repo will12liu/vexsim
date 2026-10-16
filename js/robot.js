@@ -9,7 +9,9 @@ import { buildRobotMesh } from './robotmodel.js';
 export const CFG = {
 	// Size: PLACEHOLDER until measured on the robot.
 	length: 17, width: 15, height: 44.4 / 2.54,   // team: robot top is 45 cm with the lift all the way down (frame sits 0.6 cm above H)
-	trackWidth: 11.02, wheelDia: 3.25, driveRpm: 600, mass: 6.5 /* kg */,
+	trackWidth: 11.02, wheelDia: 3.25, mass: 6.5 /* kg */,
+	driveRpm: 384,                      // wheel rpm (robot-config.cpp 10/15: 600 rpm motors geared down; a 24" push read 37.5")
+	motorRpm: 600,                      // blue cartridge: the motor encoders count motor turns
 	motorsPerSide: 2,                   // left {1,4}, right {-2,-3}
 	motorStallNm: 2.1,                  // V5 11W stall torque with the 100 rpm cartridge (VEX spec)
 	driveEff: 0.8,                      // gear/bearing losses
@@ -19,7 +21,9 @@ export const CFG = {
 	turnScrub: 0.5,                     // N*m per rad/s omni scrub while turning (tops out ~300 deg/s)
 	sideGrip: 1.0,                      // how hard the wheels resist sliding sideways (1 = full tile grip)
 	mu: 1.0,                            // omni wheel grip on foam tiles
-	CLAW_TURN_VERTICAL_DEG: 0, CLAW_TURN_HORIZONTAL_DEG: 900, CLAW_LIFT_FRACTION: 0.25,
+	// mechanisms.h (10/15): B cycles vertical -> highest -> slanted -> horizontal -> vertical
+	CLAW_TURN_VERTICAL_DEG: 25, CLAW_TURN_HORIZONTAL_DEG: 900, CLAW_LIFT_FRACTION: 0.25,
+	CASCADE_INTAKE_DEG: 180,            // R1 sends the cascade here to intake (claw side), at velocity 45
 	CLAW_TURN_VELOCITY: 200, CLAW_TURN_DOWN_VELOCITY: 100,
 	CLAW_DROP_SPEED: 127, CLAW_DROP_MS: 700,
 	clawDegPerMotorDeg: 0.1,            // 900 motor deg = 90 deg of arm swing (assumed)
@@ -30,7 +34,8 @@ export const CFG = {
 	liftDegPerSec: 1200,                // 200 rpm green at full command
 	LIFT_ALLIANCE_GOAL_DEG: 400, LIFT_SHORT_GOAL_DEG: 700, LIFT_TALL_GOAL_DEG: 1100, LIFT_VELOCITY: 200,
 };
-CFG.CLAW_TURN_LIFT_DEG = CFG.CLAW_TURN_HORIZONTAL_DEG + (CFG.CLAW_TURN_HORIZONTAL_DEG - CFG.CLAW_TURN_VERTICAL_DEG) * CFG.CLAW_LIFT_FRACTION;
+CFG.CLAW_TURN_LIFT_DEG = 2 * CFG.CLAW_TURN_HORIZONTAL_DEG * CFG.CLAW_LIFT_FRACTION;     // 450: slanted (claw_up / claw_lift_off)
+CFG.CLAW_TURN_HIGHEST_DEG = CFG.CLAW_TURN_HORIZONTAL_DEG + CFG.CLAW_TURN_LIFT_DEG;      // 1350: past horizontal, up high
 CFG.liftMaxDeg = CFG.liftMaxIn / CFG.liftInPerDeg;
 
 const DEG = Math.PI / 180;
@@ -109,7 +114,7 @@ export class Robot {
 		// Motors / mechanisms
 		this.leftCmd = 0; this.rightCmd = 0; this.brake = 'coast';
 		this.liftDeg = 0; this.liftMode = 'volt'; this.liftCmd = 0; this.liftTarget = 0; this.liftVel = CFG.LIFT_VELOCITY;
-		this.clawDeg = 0; this.clawTarget = 0; this.clawVel = CFG.CLAW_TURN_DOWN_VELOCITY;
+		this.clawDeg = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG;   // tared at 0 at boot; driver control holds it at 25 this.clawVel = CFG.CLAW_TURN_DOWN_VELOCITY;
 		this.clawSpin = 0; this.intakeCmd = 0; this.aux = false;
 		this.clawTurnHorizontal = false;
 		// Sensors
@@ -117,7 +122,7 @@ export class Robot {
 		// Pins
 		this.hopper = null; this.claw = null; this.transferT = 0; this.releaseT = 0;
 		// opcontrol state
-		this.op = { inverse: 1, inverseScale: 1, intakeRunning: false, clawIn: false, clawOut: false, r1: 0, clawState: 0, prev: {} };
+		this.op = { inverse: 1, inverseScale: 1, intakeRunning: false, intakeReversed: false, cascadeIntake: false, clawIn: false, clawOut: false, r1: 0, clawState: 0, prev: {} };
 	}
 
 	// Place at a pose: field inches, heading in degrees (0 = facing +fx, CCW positive).
@@ -283,8 +288,9 @@ export class Robot {
 		this.body.setAngvel({ x: 0, y: w + dW, z: 0 }, true);
 		// Encoders (deg) and IMU (deg, clockwise positive, unwrapped like get_rotation()).
 		const circ = Math.PI * CFG.wheelDia * IN;
-		this.leftPos += ((vf - (w * tw) / 2) / circ) * 360 * dt;
-		this.rightPos += ((vf + (w * tw) / 2) / circ) * 360 * dt;
+		const gear = CFG.motorRpm / CFG.driveRpm;   // motor turns per wheel turn
+		this.leftPos += ((vf - (w * tw) / 2) / circ) * 360 * gear * dt;
+		this.rightPos += ((vf + (w * tw) / 2) / circ) * 360 * gear * dt;
 		this.imuDeg -= (w * dt) / DEG;
 		this.wheelSpin = { L: (vf - (w * tw) / 2) / (1.625 * IN), R: (vf + (w * tw) / 2) / (1.625 * IN) };
 	}
@@ -329,7 +335,7 @@ export class Robot {
 		}
 		if (this.intakeCmd < -30 && this.hopper) this.releasePin(this.hopper, true, 1.2);
 		// Hand-off up the deflector to the claw: claw down, lift down, claw spinning in.
-		if (this.hopper && !this.claw && this.clawSpin < -30 && this.clawDeg < 150 && this.liftDeg < 150) {
+		if (this.hopper && !this.claw && this.clawSpin < -30 && this.clawDeg < 150 && this.liftDeg < CFG.CASCADE_INTAKE_DEG + 60) {   // R1 holds the cascade at the intake height
 			this.transferT += dt;
 			if (this.transferT > 0.25) { const p = this.hopper; this.hopper = null; p.held = null; this.attachPin(p, 'claw'); this.transferT = 0; }
 		} else this.transferT = 0;
@@ -398,9 +404,10 @@ export class Robot {
 	opcontrol(c, onRunAuton) {
 		const o = this.op, newPress = (k) => c[k] && !o.prev[k];
 		if (newPress('Down') && onRunAuton) onRunAuton();
-		// R2 toggles forward/reverse driving (ramped over ~160 ms); steering keeps its direction.
-		if (newPress('R2')) { o.inverse = -o.inverse; this.flash?.(o.inverse > 0 ? 'DRIVE: FWD' : 'DRIVE: REV'); }
-		o.inverseScale = clamp(o.inverse, o.inverseScale - 0.25, o.inverseScale + 0.25);
+		// 1. Drivetrain. D-pad Up toggles inverted driving: the claw side becomes the front, so stick
+		// up drives claw first. Turning stays the same. Ramped over ~160 ms.
+		if (newPress('Up')) { o.inverse = -o.inverse; this.flash?.(o.inverse < 0 ? 'INVERTED' : 'normal'); }
+		o.inverseScale = o.inverseScale < o.inverse ? Math.min(o.inverseScale + 0.25, o.inverse) : Math.max(o.inverseScale - 0.25, o.inverse);
 		let dir = c.ly, turn = c.rx;
 		if (Math.abs(dir) < 10) dir = 0;
 		if (Math.abs(turn) < 10) turn = 0;
@@ -409,32 +416,45 @@ export class Robot {
 		this.leftCmd = clamp(dir + turn, -127, 127);
 		this.rightCmd = clamp(dir - turn, -127, 127);
 		const estop = c.L1 && c.R1;
+		// R1 cycles: intake + claw spin out + cascade to the intake height -> claw spin out only -> off.
 		if (newPress('R1') && !estop) {
 			o.r1 = (o.r1 + 1) % 3;
 			o.intakeRunning = o.r1 === 1;
+			o.intakeReversed = false;
 			o.clawOut = o.r1 !== 0;
 			o.clawIn = false;
+			o.cascadeIntake = o.r1 === 1;
 		}
-		this.intakeCmd = o.intakeRunning ? 127 : 0;
-		this.liftMode = 'volt';
-		this.liftCmd = c.L1 && !estop ? 127 : c.L2 ? -85 : 0;
+		// R2 toggles both motors opposite their R1 directions; press again to stop.
+		if (newPress('R2') && !estop) {
+			o.intakeReversed = !o.intakeReversed;
+			o.intakeRunning = false; o.clawIn = false; o.clawOut = false;
+		}
+		this.intakeCmd = o.intakeReversed ? -127 : o.intakeRunning ? 127 : 0;
+		// Cascade: L1 up, L2 down; R1's intake height otherwise. Manual controls cancel that target.
+		if (estop) { o.cascadeIntake = false; this.liftMode = 'volt'; this.liftCmd = 0; }
+		else if (c.L1) { o.cascadeIntake = false; this.liftMode = 'volt'; this.liftCmd = 127; }
+		else if (c.L2) { o.cascadeIntake = false; this.liftMode = 'volt'; this.liftCmd = -85; }
+		else if (o.cascadeIntake) { this.liftMode = 'pos'; this.liftTarget = CFG.CASCADE_INTAKE_DEG; this.liftVel = 45; }
+		else { this.liftMode = 'volt'; this.liftCmd = 0; }
 		if (newPress('A')) { o.clawIn = !o.clawIn; o.clawOut = false; }
 		if (newPress('Y')) { o.clawOut = !o.clawOut; o.clawIn = false; }
-		this.clawSpin = o.clawIn ? 45 : o.clawOut ? -127 : 0;
+		this.clawSpin = o.intakeReversed ? 127 : o.clawIn ? 45 : o.clawOut ? -127 : 0;
+		// Claw turn: B cycles vertical -> highest -> slanted -> horizontal -> vertical.
 		if (newPress('B')) {
-			o.clawState = (o.clawState + 1) % 3;
-			this.clawTarget = [CFG.CLAW_TURN_VERTICAL_DEG, CFG.CLAW_TURN_HORIZONTAL_DEG, CFG.CLAW_TURN_LIFT_DEG][o.clawState];
+			o.clawState = (o.clawState + 1) % 4;
+			this.clawTarget = [CFG.CLAW_TURN_VERTICAL_DEG, CFG.CLAW_TURN_HIGHEST_DEG, CFG.CLAW_TURN_LIFT_DEG, CFG.CLAW_TURN_HORIZONTAL_DEG][o.clawState];
 			this.clawTurnHorizontal = o.clawState !== 0;
 		}
-		if (newPress('Up')) this.aux = !this.aux;
 		this.clawVel = this.clawTurnHorizontal ? CFG.CLAW_TURN_VELOCITY : CFG.CLAW_TURN_DOWN_VELOCITY;
 		o.prev = { ...c };
 	}
+
 
 	// After an auton test run from driver control (D-pad DOWN), reset like the real code does.
 	afterAutonTest() {
 		const o = this.op;
 		o.clawState = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG; this.clawTurnHorizontal = false;
-		o.intakeRunning = false; o.clawIn = false; o.clawOut = false; o.r1 = 0; this.aux = false;
+		o.intakeRunning = false; o.intakeReversed = false; o.cascadeIntake = false; o.clawIn = false; o.clawOut = false; o.r1 = 0;
 	}
 }

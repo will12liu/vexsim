@@ -67,7 +67,7 @@ function toast(msg) {
 	t.textContent = msg; t.classList.add('show');
 	clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1200);
 }
-robot.flash = (msg) => { toast(msg); input.rumble(msg.endsWith('FWD') ? 80 : 300); };
+robot.flash = (msg) => { toast(msg); input.rumble(msg === 'normal' ? 80 : 300); };
 function log(msg) {
 	const el = $('log');
 	el.textContent = (msg + '\n' + el.textContent).slice(0, 2000);
@@ -186,16 +186,16 @@ function renderControls() {
 	const x = XBOX[input.layout], k = (...a) => a.map((c) => `<kbd>${c}</kbd>`).join(' ');
 	const rows = [
 		['Drive forward / back', 'Left stick ↕', 'Left stick ↕', k('W', 'S'), 'Sticks are proportional: push a little = go slow. Keys ramp up: tap = slow, hold = full. Shift = half speed'],
-		['Reverse drive direction', k('R2'), k('RT'), k('Q'), 'Toggles FWD / REV (shown on the scoreboard). Rumble: short = forward, long = reversed'],
 		['Turn', 'Right stick ↔', 'Right stick ↔', k('A', 'D')],
 		['Lift up (cascade)', k('L1'), k('LB'), k('R')],
 		['Lift down', k('L2'), k('LT'), k('G')],
-		['Intake cycle', k('R1'), k('RB'), k('E'), '1st: intake + claw grabs · 2nd: claw spin only · 3rd: off'],
-		['Claw flip', k('B'), k(x.B), k('B'), 'Down (receives pin) → 90° (pin hangs over goal) → lifted → down'],
+		['Intake cycle', k('R1'), k('RB'), k('E'), '1st: intake + claw grabs + cascade to intake height · 2nd: claw spin only · 3rd: off'],
+		['Reverse intake + claw spin', k('R2'), k('RT'), k('Q'), 'Toggle: spits out of the intake and lets go of the claw'],
+		['Claw flip', k('B'), k(x.B), k('B'), 'Vertical → highest (135°) → slanted (45°) → horizontal (90°, pin hangs over goal) → vertical'],
 		['Claw spin in / drop pin', k('A'), k(x.A), k('F'), 'Toggle. Spinning this way lets go of the pin'],
 		['Claw spin out', k('Y'), k(x.Y), k('Y'), 'Toggle'],
 		['X (not used yet)', k('X'), k(x.X), k('X')],
-		['Pistons', k('↑'), 'D-pad ↑', k('↑'), 'Does nothing yet'],
+		['Invert drive (claw side = front)', k('↑'), 'D-pad ↑', k('↑'), 'Stick up drives claw first; turning unchanged. Shows INVERTED on the scoreboard'],
 		['Run auton (practice only)', k('↓'), 'D-pad ↓', k('↓')],
 		['E-stop a running auton test', k('L1') + '+' + k('R1'), k('LB') + '+' + k('RB'), k('R') + '+' + k('E')],
 	];
@@ -252,16 +252,16 @@ const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padS
 const dot = (c) => `<span class="dot ${c}"></span>`;
 function updateHud(score) {
 	const label = { practice: 'PRACTICE', auton: 'AUTONOMOUS', driver: 'DRIVER', ended: 'MATCH OVER' }[sim.mode];
-	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '') + (robot.op.inverse < 0 ? ' · DRIVE REV' : '');
+	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '') + (robot.op.inverse < 0 ? ' · INVERTED' : '');
 	$('clock').textContent = sim.mode === 'practice' ? '--:--' : fmtClock(Math.max(0, sim.clock));
 	const s = sim.final || score;
 	$('red').textContent = s.red; $('blue').textContent = s.blue;
 	$('toggles').innerHTML = ['red1', 'red2', 'blue1', 'blue2'].map((q) => `<span>${q.replace('red', 'R').replace('blue', 'B')}${dot(s.toggles[q])}</span>`).join('');
 	$('detail').textContent = `Pins placed ${s.placedPins} · halves R${s.halves.red} B${s.halves.blue} Y→R${s.halves.yellowRed} Y→B${s.halves.yellowBlue} `;
 	const st = ['vertical', 'horizontal', 'lifted'];
-	const clawState = robot.clawDeg < 450 ? 'vertical' : robot.clawDeg < 1010 ? 'horizontal' : 'lifted';
+	const clawState = robot.clawDeg < 240 ? 'vertical' : robot.clawDeg < 680 ? 'slanted' : robot.clawDeg < 1120 ? 'horizontal' : 'highest';
 	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
-		`Drive ${robot.op.inverse > 0 ? 'FWD' : 'REV'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
+		`Drive ${robot.op.inverse > 0 ? 'normal' : 'INVERTED'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	void st;
 	$('source').textContent = input.source;
 }

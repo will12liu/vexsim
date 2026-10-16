@@ -4,7 +4,7 @@ import { CFG } from './robot.js';
 import { toField } from './field.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const BLOCKING = ['move', 'turn_to', 'turn', 'drive_time', 'wait', 'lift_wait', 'claw_in', 'claw_out', 'claw_up', 'claw_drop', 'score',
+const BLOCKING = ['move', 'turn_to', 'turn', 'drive_time', 'wait', 'lift_wait', 'claw_in', 'claw_out', 'claw_up', 'claw_drop', 'score', 'claw_drop_up',
 	'drive_to', 'back_to', 'face', 'face_heading', 'drive_to_pose', 'back_to_pose'];
 
 // C++ routine text -> generator function source.
@@ -109,7 +109,20 @@ export function makeAuton(robot, sel /* { side: 'left'|'right', color: 'red'|'bl
 		while (!s.stopped && Math.abs(robot.clawDeg - deg) > tol && (now() - t0) * 1000 < timeout) yield;
 	}
 	function* claw_in() { status('claw_in'); robot.clawTurnHorizontal = false; yield* clawTo(CFG.CLAW_TURN_VERTICAL_DEG, CFG.CLAW_TURN_DOWN_VELOCITY, 2000); }
-	function* claw_out() { status('claw_out'); robot.clawTurnHorizontal = true; yield* clawTo(CFG.CLAW_TURN_HORIZONTAL_DEG, CFG.CLAW_TURN_VELOCITY, 1000); }
+	function* claw_out() { status('claw_out'); robot.clawTurnHorizontal = true; yield* clawTo(CFG.CLAW_TURN_HORIZONTAL_DEG, CFG.CLAW_TURN_VELOCITY, 200); }   // waits at most 200 ms (10/15)
+	// Start the flip and keep going (no wait), so it flips while the robot drives.
+	const claw_out_start = () => { status('claw_out_start'); robot.clawTurnHorizontal = true; robot.clawTarget = CFG.CLAW_TURN_HORIZONTAL_DEG; robot.clawVel = CFG.CLAW_TURN_VELOCITY; };
+	const claw_up_start = () => { status('claw_up_start'); robot.clawTurnHorizontal = true; robot.clawTarget = CFG.CLAW_TURN_LIFT_DEG; robot.clawVel = CFG.CLAW_TURN_VELOCITY; };
+	// Drop the pin and lift the claw slightly up at the same time; waits for a started flip first.
+	function* claw_drop_up(speed = 1000, ms = 0) {
+		status('claw_drop_up');
+		if (speed === 1000) speed = CFG.CLAW_DROP_SPEED;
+		if (ms <= 0) ms = CFG.CLAW_DROP_MS;
+		yield* clawTo(robot.clawTarget, robot.clawVel, 1000);
+		if (s.stopped) return;
+		robot.clawSpin = speed; robot.clawTurnHorizontal = true; robot.clawTarget = CFG.CLAW_TURN_LIFT_DEG; robot.clawVel = CFG.CLAW_TURN_VELOCITY;
+		yield* wait(ms); robot.clawSpin = 0;
+	}
 	function* claw_up() { status('claw_up'); if (s.stopped) return; robot.clawTurnHorizontal = true; yield* clawTo(CFG.CLAW_TURN_LIFT_DEG, CFG.CLAW_TURN_VELOCITY, 1500); }
 	function* claw_drop(speed = 1000, ms = 0) {
 		status('claw_drop');
@@ -177,7 +190,7 @@ export function makeAuton(robot, sel /* { side: 'left'|'right', color: 'red'|'bl
 	function* lift_goal_wait() { api.lift_goal(); yield* lift_wait(); }
 
 	const api = {
-		move, turn, turn_to, drive_time, wait, lift_wait, claw_in, claw_out, claw_up, claw_drop, score,
+		move, turn, turn_to, drive_time, wait, lift_wait, claw_in, claw_out, claw_up, claw_drop, score, claw_out_start, claw_up_start, claw_drop_up,
 		set_pose, drive_to, back_to, face, face_heading, drive_to_pose, back_to_pose,
 		move_pid: (p, d) => { s.moveKp = p; s.moveKd = d; },
 		turn_pid: (p, d) => { s.turnKp = p; s.turnKd = d; },

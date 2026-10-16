@@ -1,3 +1,4 @@
+
 #include "main.h"
 #include "auton_cmds.h"
 
@@ -17,6 +18,8 @@
 //   lift_goal()  lift_down()  lift_wait()                (lift moves don't wait; add lift_wait())
 //   claw_in()  claw_out()  claw_up()  claw_drop()          (claw: vertical / horizontal / slightly up / spin to drop)
 //   intake(speed)  spin_claw(speed)
+//   claw_out_start()             start flipping the claw out, doesn't wait (flip while driving)
+//   claw_drop_up()               drop the pin and lift the claw up at the same time
 //   score()   = lift_goal, lift_wait, claw_out, claw_drop, claw_up in one go
 //
 // LemLib (go to a spot on the field, see include/auton_cmds.h for the coordinates):
@@ -39,18 +42,25 @@
 
 void run_routine() {
 	// 1. Hit the Toggle twice 
-	drive_time(-50,500);//backup
+	back_to(0, -8.4, 60);        // back up to y = -8.4
 	drive_time(127, 900);//forward
+	set_pose(0, 0.7, 0);   
 	wait(150); //wait
-	drive_time(-50, 600);        // back up        
+	back_to(0, -8.4, 60);        // back up to y = -8.4
 	drive_time(127, 950);        // hit 2: drive in
-	wait(150);           
-	drive_time(-95, 350);        // back off the Toggle a little
+	set_pose(0, 0.7, 0);         // pressed flat on the wall: exact spot (measured 10/13), wipes out wheel slip from the hits
+	wait(150);
 
-	//2. score preloaded pin               
-	turn(mirror(-85), 100);      // turn so the BACK (claw side) faces our goal
-	move(-45, 50);              // reverse toward the goal
-	claw_out();                  // claw vertical -> horizontal
-	claw_drop();                 // claw spin (A button) to drop the pin
-	claw_up();                   // claw slightly up (B's 2nd press)
+	//2. score preloaded pin (LemLib). Spots measured on the TUNE screen 10/13, LEFT side:
+	//   score spot (19.2, -12.9, -87.1)
+	back_to(0, -17.4, 60);                 // 1) straight back off the Toggle to the score spot's y
+	face_heading(mirror(-87.1), 100);      // 2) turn so the BACK (claw side) faces our goal
+	claw_out();                            // claw vertical -> horizontal
+	back_to(mirror(21.2), -17.4, 60);        // 3) straight back to the score spot's x
+	claw_drop();                           // claw spin (A button) to drop the pin
+
+	//3. claw up while driving to the next spot (-16.9, -35.8, -130.1)
+	//claw_up_start();                       // B once: horizontal -> slanted, lifts while we drive
+	//face_heading(mirror(-120.1), 100);     // turn to the angle first
+	//drive_to(mirror(-16.9), -35.8, 100);   // then drive front first to the spot
 }
