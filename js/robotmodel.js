@@ -240,7 +240,7 @@ export function buildRobotMesh(CFG) {
 	const gd = CFG.guide, gy = (gd.y0 + gd.y1) / 2, back = -hl;
 	channel(root, 'silver', [back, gy, 0], [gd.apexX, gy, 0], 1, [0, 1, 0]);
 	for (const s of [-1, 1]) {
-		const len = (gd.apexX - (gd.seatX - gd.mouth)) / Math.SQRT1_2 + 0.5;
+		const len = gd.armLen;
 		channel(root, 'silver', [gd.apexX, gy, 0], [gd.apexX - len * Math.SQRT1_2, gy, s * len * Math.SQRT1_2], 1, [0, 1, 0]);
 	}
 	return out;
