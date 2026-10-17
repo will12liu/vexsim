@@ -31,7 +31,7 @@ export const CFG = {
 	pinBottomAtHorizontal: 25 / 2.54 - 5.5,   // team (2026-10-15): claw lowered, pivot 25 cm off the floor with the lift down
 	// Goal guide (team addition 10/17): a V of channel on the back. Backing into a goal, the post
 	// slides into the V and stops where the claw at 90 deg holds the pin right over the goal.
-	guide: { r: 2.15, t: 0.5, armLen: 5.5, y0: 2.4, y1: 3.2 },   // goal radius it seats on, channel thickness, length of each V arm (11 holes), height band
+	guide: { r: 2.15, t: 0.5, armLen: 4, y0: 2.4, y1: 3.2 },   // goal radius it seats on, channel thickness, length of each V arm (8 holes), height band
 	liftInPerDeg: 0.03,                 // lift inches per cascade motor degree (assumed)
 	liftMaxIn: 62.1 / 2.54,             // team: fully up the top of the cascade is 105 cm (top stage starts 2.1 cm below the frame)
 	liftDegPerSec: 1200,                // 200 rpm green at full command
