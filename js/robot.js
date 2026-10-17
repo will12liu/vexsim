@@ -29,6 +29,9 @@ export const CFG = {
 	clawDegPerMotorDeg: 0.1,            // 900 motor deg = 90 deg of arm swing (assumed)
 	clawArm: 9,                         // pivot -> grip, inches (from photos)
 	pinBottomAtHorizontal: 25 / 2.54 - 5.5,   // team (2026-10-15): claw lowered, pivot 25 cm off the floor with the lift down
+	// Goal guide (team addition 10/17): a V of channel on the back. Backing into a goal, the post
+	// slides into the V and stops where the claw at 90 deg holds the pin right over the goal.
+	guide: { r: 2.15, t: 0.5, mouth: 4.3, y0: 2.4, y1: 3.2 },   // goal radius it seats on, channel thickness, half-width of the mouth, height band
 	liftInPerDeg: 0.03,                 // lift inches per cascade motor degree (assumed)
 	liftMaxIn: 62.1 / 2.54,             // team: fully up the top of the cascade is 105 cm (top stage starts 2.1 cm below the frame)
 	liftDegPerSec: 1200,                // 200 rpm green at full command
@@ -37,6 +40,12 @@ export const CFG = {
 CFG.CLAW_TURN_LIFT_DEG = 2 * CFG.CLAW_TURN_HORIZONTAL_DEG * CFG.CLAW_LIFT_FRACTION;     // 450: slanted (claw_up / claw_lift_off)
 CFG.CLAW_TURN_HIGHEST_DEG = CFG.CLAW_TURN_HORIZONTAL_DEG + CFG.CLAW_TURN_LIFT_DEG;      // 1350: past horizontal, up high
 CFG.liftMaxDeg = CFG.liftMaxIn / CFG.liftInPerDeg;
+// Guide layout (robot-local inches): the goal centre seats under the claw grip at 90 deg.
+{
+	const g = CFG.guide, seat = -6.5 - CFG.clawArm;               // grip x with the claw at 90
+	g.seatX = seat;
+	g.apexX = seat + (g.r + g.t / 2) / Math.SQRT1_2;   // V half-angle 45 deg
+}
 
 const DEG = Math.PI / 180;
 // All colliders of a pin or cup.
@@ -100,6 +109,19 @@ export class Robot {
 			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, -cw] },
 			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, cw] },
 		];
+		// Goal guide: two channel arms in a V opening backward (see CFG.guide). Our robot only.
+		if (!this.noGuide) {
+			const g = CFG.guide, len = (g.apexX - (g.seatX - g.mouth)) / Math.SQRT1_2 + 0.5, hy = (g.y1 - g.y0) / 2;
+			for (const s of [-1, 1]) {
+				const dir = new THREE.Vector3(-Math.SQRT1_2, 0, s * Math.SQRT1_2);
+				const c = new THREE.Vector3(g.apexX, (g.y0 + g.y1) / 2, 0).addScaledVector(dir, len / 2);
+				const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);
+				this.colliders.push(world.createCollider(R.ColliderDesc.cuboid((len / 2) * IN, hy * IN, (g.t / 2) * IN)
+					.setTranslation(c.x * IN, c.y * IN, c.z * IN).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+					.setFriction(0).setFrictionCombineRule(R.CoefficientCombineRule.Min).setDensity(0)
+					.setCollisionGroups(groups(GROUP.robot, 0xffff)), this.body));
+			}
+		}
 		this.mesh = this.buildMesh();
 		this.scene.add(this.mesh);
 	}
@@ -234,6 +256,16 @@ export class Robot {
 	// gain speed faster than its wheels could push it (~1 g), and never past 2.6 m/s / 12 rad/s.
 	// Slowing down (hitting things) is never limited.
 	clampVel() {
+		// Last line of defence: if the solver ever produces NaN, put the robot back where it last was.
+		const tr = this.body.translation(), lv = this.body.linvel(), av = this.body.angvel();
+		if ([tr.x, tr.z, lv.x, lv.z, av.y].some((v) => !Number.isFinite(v))) {
+			if (this.lastGood) { this.body.setTranslation(this.lastGood.t, true); this.body.setRotation(this.lastGood.r, true); }
+			this.body.setLinvel({ x: 0, y: 0, z: 0 }, true); this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+			if (!Number.isFinite(this.clawDeg)) this.clawDeg = this.clawTarget || 0;
+			if (!Number.isFinite(this.liftDeg)) this.liftDeg = 0;
+			return;
+		}
+		this.lastGood = { t: { ...tr }, r: { ...this.body.rotation() } };
 		const v = this.body.linvel(), sp = Math.hypot(v.x, v.z), prev = this.prevSp ?? sp;
 		const cap = Math.min(2.6, prev + 9.8 / 120);
 		if (sp > cap) this.body.setLinvel({ x: (v.x * cap) / sp, y: 0, z: (v.z * cap) / sp }, true);

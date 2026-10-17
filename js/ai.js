@@ -46,6 +46,7 @@ function aiMesh() {
 }
 
 export class AIRobot extends Robot {
+	get noGuide() { return true; }   // the goal guide is our team's add-on, not the AI robots'
 	constructor(R, world, scene, field, alliance, label) {
 		super(R, world, scene, field);
 		this.alliance = alliance; this.label = label;

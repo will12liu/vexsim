@@ -235,5 +235,13 @@ export function buildRobotMesh(CFG) {
 	const pr = mesh(new THREE.CylinderGeometry(0.12 * IN, 0.12 * IN, 2.6 * IN, 8), M.steel, pivot, 0.8, -arm * 0.4 - 2.6, cw - 1.2);
 	pr.userData.y0 = pr.position.y;
 	out.pistons.push(pr);
+	// Goal guide on the back: a channel out from the base, then a V of channel that the goal post
+	// slides into (CFG.guide; the colliders are in robot.js).
+	const gd = CFG.guide, gy = (gd.y0 + gd.y1) / 2, back = -hl;
+	channel(root, 'silver', [back, gy, 0], [gd.apexX, gy, 0], 1, [0, 1, 0]);
+	for (const s of [-1, 1]) {
+		const len = (gd.apexX - (gd.seatX - gd.mouth)) / Math.SQRT1_2 + 0.5;
+		channel(root, 'silver', [gd.apexX, gy, 0], [gd.apexX - len * Math.SQRT1_2, gy, s * len * Math.SQRT1_2], 1, [0, 1, 0]);
+	}
 	return out;
 }
