@@ -48,6 +48,7 @@ CFG.liftMaxDeg = CFG.liftMaxIn / CFG.liftInPerDeg;
 }
 
 const DEG = Math.PI / 180;
+const PAIR_GAP = 3.4;   // inches between two pins held side by side in the claw
 // All colliders of a pin or cup.
 const colsOf = (o) => (o.collider ? [o.collider, ...o.extra] : Array.from({ length: o.body.numColliders() }, (_, i) => o.body.collider(i)));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -207,6 +208,7 @@ export class Robot {
 		this.releasePin(main, keepVel);
 		this.clawRel = null;
 		if (!assist || !this.field.assistDrop(bottom) || !top) return;
+		if (top.kind === 'pin' && bottom.kind === 'pin') return;   // two pins side by side: both let go, the lower one seats
 		const b = bottom.body.translation(), h = off.length();   // stack straight up over the seated bottom piece
 		top.body.setTranslation({ x: b.x, y: b.y + h, z: b.z }, true);
 		top.body.setRotation(bottom.body.rotation(), true);
@@ -218,6 +220,11 @@ export class Robot {
 	clawGripWorld() {
 		const a = this.clawArmAngle(), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
 		return this.toWorld(-6.5 - CFG.clawArm * Math.sin(a), py - CFG.clawArm * Math.cos(a), 0);
+	}
+
+	// One pin in the claw, nothing else with it, at the intake height: room for a second pin beside it.
+	canPair() {
+		return !!this.claw && this.claw.kind === 'pin' && !this.clawExtraPiece && this.liftDeg < CFG.CASCADE_INTAKE_DEG + 60;
 	}
 
 	// Is the end channel of the claw frame touching this Toggle? (Points along it vs the Toggle's prism.)
@@ -418,9 +425,10 @@ export class Robot {
 		// Intake: grab a pin or cup sitting in front of the rollers. One piece at a time: nothing is
 		// picked up while the robot already holds one (in the intake or the claw).
 		// The claw has to be at its starting position (down) or the piece jams: nothing is taken in.
-		if (this.intakeCmd > 30 && !this.hopper && !this.claw && this.clawDeg < 150) {
+		// Exception: with one pin already in the claw (intake height, claw down) a second pin can follow it in.
+		if (this.intakeCmd > 30 && !this.hopper && (!this.claw || this.canPair()) && this.clawDeg < 150) {
 			for (const pin of [...this.field.pins, ...this.field.cups]) {   // cups go through the same way as pins
-				if (pin.held) continue;
+				if (pin.held || (this.claw && pin.kind !== 'pin')) continue;
 				const f = toField(pin.body.translation());
 				if (this.field.goals.some((g) => Math.hypot(f.fx - g.fx, f.fy - g.fy) < 2.5 && f.h > g.base)) continue;   // seated on a post
 				const l = this.toLocal(new THREE.Vector3().copy(pin.body.translation()));
@@ -429,9 +437,16 @@ export class Robot {
 		}
 		if (this.intakeCmd < -30 && this.hopper) this.releasePin(this.hopper, true, 1.2);
 		// Hand-off up the deflector to the claw: claw down, lift down, claw spinning in.
-		if (this.hopper && !this.claw && this.clawSpin < -30 && this.clawDeg < 150 && this.liftDeg < CFG.CASCADE_INTAKE_DEG + 60) {   // R1 holds the cascade at the intake height
+		// A pin on the ramp behind one already in the claw goes in beside it: the claw then holds both.
+		const pairing = this.hopper && this.hopper.kind === 'pin' && this.canPair();
+		if (this.hopper && (!this.claw || pairing) && this.clawSpin < -30 && this.clawDeg < 150 && this.liftDeg < CFG.CASCADE_INTAKE_DEG + 60) {   // R1 holds the cascade at the intake height
 			this.transferT += dt;
-			if (this.transferT > 0.25) { const p = this.hopper; this.hopper = null; p.held = null; this.attachPin(p, 'claw'); this.transferT = 0; }
+			if (this.transferT > 0.25) {
+				const p = this.hopper; this.hopper = null; p.held = null;
+				if (pairing) { this.clawRel = { pos: new THREE.Vector3(0, 0, PAIR_GAP), quat: new THREE.Quaternion() }; this.attachPin(p, 'clawExtraPiece'); }
+				else this.attachPin(p, 'claw');
+				this.transferT = 0;
+			}
 		} else this.transferT = 0;
 		// The claw as an intake: swung out and spinning the grab way, it picks up an upright pin or
 		// cup whose top is at the grip (off the floor, a goal or a stack). One piece at a time.
@@ -477,7 +492,9 @@ export class Robot {
 		const flip = (o) => (o.flipped ? Math.PI : 0);   // held the other way round (bottom end first)
 		if (this.hopper) pose(this.hopper, new THREE.Vector3(2.5, 4.5, 0), Math.PI / 2 + flip(this.hopper));   // lying flat on the ramp
 		if (this.claw) {
-			const l = this.clawPinLocal(); l.angle += flip(this.claw); pose(this.claw, l.pos, l.angle);
+			const l = this.clawPinLocal(); l.angle += flip(this.claw);
+			if (this.clawExtraPiece && this.clawExtraPiece.kind === 'pin' && this.claw.kind === 'pin') l.pos.z -= PAIR_GAP / 2;   // two pins: centred on the claw
+			pose(this.claw, l.pos, l.angle);
 			const e = this.clawExtraPiece, rel = this.clawRel;
 			if (e && rel) {   // stacked partner (cup under the pin / cup on top) rides along rigidly
 				const mq = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(Z, l.angle)), mp = this.toWorld(l.pos.x, l.pos.y, l.pos.z);

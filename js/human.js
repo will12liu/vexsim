@@ -1,9 +1,10 @@
 // Human players standing behind the wall at each corner Loader (Override <SG> match loads: Drive
 // Team Members put Pins in through the top/back of their alliance's Loader, driver period only).
-// Ours loads straight into the robot, two Pins at a time (one onto the intake ramp, one into the
-// claw), by themselves whenever the robot sits at its Loader with room for them.
+// Ours drops two Pins at a time on the floor in front of the robot's intake, by themselves whenever
+// the robot sits at its Loader with empty hands. The robot then intakes them itself.
 import * as THREE from 'three';
-import { IN, W, toField } from './field.js';
+import { IN, W, toField, PIN_R } from './field.js';
+import { CFG } from './robot.js';
 
 const REACH = 20;          // robot centre within this many inches of the Loader post
 const HAND_S = 0.35;       // arm swing before the pins arrive
@@ -55,33 +56,36 @@ export class HumanPlayers {
 		return best;
 	}
 
-	// Something the robot could take right now: the intake ramp, or the claw when it's down.
-	room(robot) { return !robot.hopper || (!robot.claw && robot.clawDeg < 150); }
-
-	// Starts a load when the robot is stopped at its Loader with room, in driver period.
+	// Starts a load when the robot is stopped at its Loader with empty hands, in driver period, and
+	// there's nothing left on the floor in front of it from the last load.
 	auto(robot, live) {
-		if (this.job || !live || this.t < this.readyAt || !this.room(robot)) return;
+		if (this.job || !live || this.t < this.readyAt || robot.hopper || robot.claw) return;
 		const v = robot.body.linvel();
 		if (Math.hypot(v.x, v.z) > 0.35) return;   // still driving in
 		const p = this.near(robot);
-		if (!p) return;
+		if (!p || this.loose(robot)) return;
 		this.job = { robot, p, t: 0, loaded: false };
 		p.swing = 0;
 	}
 
-	// Two pins straight into the robot: the claw (if it's down) and the intake ramp.
+	// Loose pins sitting by the robot's intake.
+	loose(robot) {
+		return robot.field.pins.some((pin) => {
+			if (pin.held) return false;
+			const l = robot.toLocal(new THREE.Vector3().copy(pin.body.translation()));
+			return l.x > CFG.length / 2 - 4 && l.x < CFG.length / 2 + 8 && Math.abs(l.z) < 8 && l.y < 6;
+		});
+	}
+
+	// Two pins dropped on the floor right in front of the intake, side by side, pointing at it.
 	load(robot) {
-		const field = robot.field, color = robot.alliance, at = robot.toWorld(0, 10, 0);
-		let n = 0;
-		const give = (slot) => {
-			const pin = field.makePin(color, 'yellow', at);
-			robot.attachPin(pin, slot);
-			pin.flipped = false;
-			n++;
-		};
-		if (!robot.claw && robot.clawDeg < 150) give('claw');
-		if (!robot.hopper) give('hopper');
-		this.toast(`HUMAN LOAD: ${n} pin${n > 1 ? 's' : ''}`);
+		const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(robot.quat());
+		const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), fwd);
+		for (const z of [-2, 2]) {
+			const at = robot.toWorld(CFG.length / 2 + 2.5, PIN_R + 0.2, z);
+			robot.field.makePin(robot.alliance, 'yellow', at, { x: q.x, y: q.y, z: q.z, w: q.w });
+		}
+		this.toast('HUMAN LOAD: 2 pins at the intake');
 	}
 
 	step(dt, robot, live) {
