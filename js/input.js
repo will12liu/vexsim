@@ -12,7 +12,7 @@ const FACE = {
 const KEYS = {
 	L1: ['KeyR'], L2: ['KeyG'], R1: ['KeyE'], R2: ['KeyQ'],
 	A: ['KeyF'], B: ['KeyB'], X: ['KeyX'], Y: ['KeyY'],
-	Up: ['ArrowUp'], Down: ['ArrowDown'], Left: ['ArrowLeft'], Right: ['ArrowRight'],
+	Up: ['ArrowUp'], Down: ['ArrowDown'], Left: ['ArrowLeft'], Right: ['ArrowRight', 'KeyH'],
 };
 
 // Xbox sticks don't rest exactly at 0 (worn ones sit 5-15% off), which made the robot creep and
@@ -25,7 +25,7 @@ const SETUP_STEPS = [
 	['L1', 'Press what you want as L1 (lift up)'], ['L2', 'Press L2 (lift down)'],
 	['R1', 'Press R1 (intake)'], ['R2', 'Press R2 (reverse intake + claw)'],
 	['A', 'Press A (claw spin in / drop)'], ['B', 'Press B (claw flip)'], ['X', 'Press X'], ['Y', 'Press Y (claw spin out)'],
-	['Up', 'Press D-pad UP (invert drive)'], ['Down', 'Press D-pad DOWN (run auton)'], ['Left', 'Press D-pad LEFT'], ['Right', 'Press D-pad RIGHT'],
+	['Up', 'Press D-pad UP (invert drive)'], ['Down', 'Press D-pad DOWN (run auton)'], ['Left', 'Press D-pad LEFT'], ['Right', 'Press D-pad RIGHT (human player loads)'],
 ];
 
 export class Input {

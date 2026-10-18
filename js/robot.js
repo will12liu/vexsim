@@ -547,6 +547,7 @@ export class Robot {
 		if (newPress('A')) { o.clawIn = !o.clawIn; o.clawOut = false; }
 		if (newPress('Y')) { o.clawOut = !o.clawOut; o.clawIn = false; }
 		this.clawSpin = o.intakeReversed ? 127 : o.clawIn ? 45 : o.clawOut ? -127 : 0;
+		if (newPress('Right')) this.requestHuman?.();   // sim only: the human player at the Loader
 		// Claw turn (opcontrol.cpp): B cycles vertical -> highest -> lift -> horizontal -> vertical.
 		if (newPress('B')) {
 			o.clawState = (o.clawState + 1) % 4;
