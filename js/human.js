@@ -1,7 +1,7 @@
 // Human players standing behind the wall at each corner Loader (Override <SG> match loads: Drive
 // Team Members put Pins in through the top/back of their alliance's Loader, driver period only).
 // Ours loads straight into the robot, two Pins at a time (one onto the intake ramp, one into the
-// claw), when the robot is at its Loader and asks (D-pad right / H).
+// claw), by themselves whenever the robot sits at its Loader with room for them.
 import * as THREE from 'three';
 import { IN, W, toField } from './field.js';
 
@@ -55,13 +55,16 @@ export class HumanPlayers {
 		return best;
 	}
 
-	request(robot, live) {
-		if (this.job) return;
-		if (!live) { this.toast('Human loading is driver period only'); return; }
+	// Something the robot could take right now: the intake ramp, or the claw when it's down.
+	room(robot) { return !robot.hopper || (!robot.claw && robot.clawDeg < 150); }
+
+	// Starts a load when the robot is stopped at its Loader with room, in driver period.
+	auto(robot, live) {
+		if (this.job || !live || this.t < this.readyAt || !this.room(robot)) return;
+		const v = robot.body.linvel();
+		if (Math.hypot(v.x, v.z) > 0.35) return;   // still driving in
 		const p = this.near(robot);
-		if (!p) { this.toast('Drive to your Loader first'); return; }
-		if (this.t < this.readyAt) return;
-		if (robot.hopper && robot.claw) { this.toast('Robot is full'); return; }
+		if (!p) return;
 		this.job = { robot, p, t: 0, loaded: false };
 		p.swing = 0;
 	}
@@ -78,11 +81,12 @@ export class HumanPlayers {
 		};
 		if (!robot.claw && robot.clawDeg < 150) give('claw');
 		if (!robot.hopper) give('hopper');
-		this.toast(n ? `HUMAN LOAD: ${n} pin${n > 1 ? 's' : ''}` : 'Claw up: lower it to take both');
+		this.toast(`HUMAN LOAD: ${n} pin${n > 1 ? 's' : ''}`);
 	}
 
-	step(dt) {
+	step(dt, robot, live) {
 		this.t += dt;
+		this.auto(robot, live);
 		for (const p of this.people) {
 			if (p.swing < 0) { p.arm.rotation.z = 0; continue; }
 			p.swing += dt;
@@ -94,7 +98,7 @@ export class HumanPlayers {
 		j.t += dt;
 		if (!j.loaded && j.t >= HAND_S) {
 			j.loaded = true;
-			if (this.near(j.robot) === j.p) this.load(j.robot); else this.toast('Out of reach');
+			if (this.near(j.robot) === j.p) this.load(j.robot);
 			this.readyAt = this.t + COOLDOWN_S;
 		}
 		if (j.t >= SWING_S) this.job = null;
@@ -103,6 +107,6 @@ export class HumanPlayers {
 	// For the HUD.
 	status(robot) {
 		if (!this.near(robot)) return '';
-		return this.t < this.readyAt ? 'Loader: reloading' : 'Loader: READY (D-pad → / H)';
+		return this.t < this.readyAt ? 'Loader: reloading' : 'Loader: ready';
 	}
 }

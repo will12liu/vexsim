@@ -58,7 +58,6 @@ const field = new Field(RAPIER, world, scene);
 const robot = new Robot(RAPIER, world, scene, field);
 const input = new Input();
 const humans = new HumanPlayers(scene, (m) => toast(m));
-robot.requestHuman = () => humans.request(robot, sim.mode === 'practice' || sim.mode === 'driver');
 // AI robots for 2v2: partner + two opponents. Built once, switched off outside 2v2.
 const ais = [0, 1, 2].map(() => new AIRobot(RAPIER, world, scene, field, 'red', ''));
 const active = () => (sim.game === 'ai' ? [robot, ...ais] : [robot]);
@@ -204,8 +203,7 @@ function renderControls() {
 		['Claw spin out', k('Y'), k(x.Y), k('Y'), 'Toggle'],
 		['Claw straight to 90° / back down', k('X'), k(x.X), k('X'), 'One press flips to 90°, again goes back to rest (skips the B positions)'],
 		['Invert drive (claw side = front)', k('↑'), 'D-pad ↑', k('↑'), 'Stick up drives claw first; turning unchanged. Shows INVERTED on the scoreboard'],
-		['Human player load (2 pins)', k('D-pad →'), 'D-pad →', k('H') + ' ' + k('→'), 'At your corner Loader, driver period: the human puts one pin in the claw (claw down) and one on the intake ramp, 1.5 s between loads'],
-		['Run auton (practice only)', k('↓'), 'D-pad ↓', k('↓')],
+			['Run auton (practice only)', k('↓'), 'D-pad ↓', k('↓')],
 		['E-stop a running auton test', k('L1') + '+' + k('R1'), k('LB') + '+' + k('RB'), k('R') + '+' + k('E')],
 	];
 	$('ctrlRows').innerHTML = rows.map(([a, v, xb, kb, note]) => `<tr><td>${a}${note ? `<small>${note}</small>` : ''}</td><td>${v}</td><td>${xb}</td><td>${kb}</td></tr>`).join('');
@@ -323,7 +321,7 @@ function physicsStep() {
 	const live = sim.mode === 'auton' || sim.mode === 'driver';
 	for (const a of ais) if (sim.game === 'ai') { if (live) a.think(DT, active()); else a.stop(); }
 	for (const r of active()) r.step(DT);
-	humans.step(DT);
+	humans.step(DT, robot, sim.mode === 'practice' || sim.mode === 'driver');
 	field.stepToggles(DT, active());
 	world.step();
 	clampVelocities(field.pins); clampVelocities(field.cups);
