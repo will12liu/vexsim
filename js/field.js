@@ -39,11 +39,11 @@ const GOALS = [
 ];
 
 // Loaders: a clear tube hung on the inside of each alliance-station wall near the corner, in the
-// Load Zone, with its stack standing on a base at about wall height (like the team's photo). The
+// Load Zone, with its stack standing on a low base (snug around the claw: grab it with the cascade down, back out, then lift). The
 // human player slides the tube up, sets the stack in and slides it back down (human.js). The
 // tube is open on the field side: the robot backs in square with the lift at the base and the
 // claw spinning in, and the rollers pull the stack out. n = which way the open side faces (+1 = +fx).
-export const LOADER = { base: 12, off: 2.4, inner: 3.6, h: 13, slide: 8 };
+export const LOADER = { base: 0.6, off: 2.4, inner: 3.6, h: 13, slide: 8 };
 const LOADERS = [
 	{ alliance: 'red', fx: -72.5, fy: 62, n: 1 }, { alliance: 'red', fx: -72.5, fy: -62, n: 1 },
 	{ alliance: 'blue', fx: 72.5, fy: 62, n: -1 }, { alliance: 'blue', fx: 72.5, fy: -62, n: -1 },
@@ -269,7 +269,7 @@ export class Field {
 		const b = LOADER.base, h = LOADER.h, w = LOADER.inner + 0.8, off = LOADER.off;
 		// Base the stack stands on, and the bracket that hooks it over the wall.
 		box(w, 0.6, w, 0, b - 0.3, 0, team);
-		box(0.25, 4, 3, -off, b - 0.6 + 2, 0, alu);
+		box(0.25, WALL_H + 0.9 - b, 3, -off, (WALL_H + 0.9 + b) / 2, 0, alu);
 		box(off - w / 2 + 0.2, 0.5, 3, -(off + w / 2) / 2, b - 0.35, 0, alu);
 		box(1.6, 0.25, 3, -off - 0.7, WALL_H + 0.9, 0, alu);
 		const body = world.createRigidBody(R.RigidBodyDesc.fixed());

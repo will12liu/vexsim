@@ -114,6 +114,6 @@ export class HumanPlayers {
 		if (!L) return '';
 		if (!L.ready) return 'Loader: refilling';
 		const e = robot.liftIn() - LOADER.base;
-		return `Loader: ready · ${e < -3 ? `lift up to ${LOADER.base}"` : e > 1.5 ? `lift down to ${LOADER.base}"` : 'lift OK, R1 + back in straight'}`;
+		return `Loader: ready · ${e > 1.5 ? 'cascade down first' : 'R1 + back in straight, then lift'}`;
 	}
 }
