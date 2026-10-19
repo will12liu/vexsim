@@ -1,7 +1,8 @@
 // Human players standing behind the wall at each corner Loader (Override: Drive Team Members put
 // match loads in through their alliance's Loaders, driver period only). Ours keep a cup with a pin
-// in it standing on the floor in front of each of our Loaders: when the spot is empty they put a
-// new stack there. The robot drives claw first into it and the flex-wheel claw takes the stack.
+// in it (or just a pin, picked before the match: `load`) standing on the floor in front of our
+// Loaders (both, or only the left / right one as seen from our station: `loader`). When the spot is
+// empty they put a new one there. The robot drives claw first into it and the claw takes it.
 import * as THREE from 'three';
 import { IN, W, toField, CUP_H, PIN_H, PIN_COLLAR } from './field.js';
 import { CFG } from './robot.js';
@@ -15,7 +16,7 @@ const LOAD = SPOT - 6.5;   // where the stack stands, in front of the post
 export class HumanPlayers {
 	constructor(scene, toast) {
 		this.toast = toast;
-		this.t = 0;
+		this.t = 0; this.load = 'cupOwn'; this.loader = 'both';
 		const skin = new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.8 });
 		const pants = new THREE.MeshStandardMaterial({ color: 0x23262d, roughness: 0.9 });
 		this.people = [];
@@ -66,10 +67,21 @@ export class HumanPlayers {
 		return !onRobot || inMouth;
 	}
 
+	// Loaders this human player uses. Red stands at -fx looking +fx (left = +fy); blue the other way.
+	uses(p, s) {
+		if (this.load === 'off' || p.s !== s) return false;
+		if (this.loader === 'both') return true;
+		const left = p.sy === -s;
+		return this.loader === 'left' ? left : !left;
+	}
+
 	place(p, robot) {
-		const sp = this.spot(p);
-		robot.field.makeCup(W(sp.fx, sp.fy, CUP_H / 2 + 0.02), false);   // opaque half down, like the photos
-		robot.field.makePin(robot.alliance, 'yellow', W(sp.fx, sp.fy, CUP_H - PIN_COLLAR + 0.06 + PIN_H / 2));
+		const sp = this.spot(p), f = robot.field;
+		const top = this.load.endsWith('Yellow') ? 'yellow' : robot.alliance;
+		if (this.load.startsWith('cup')) {
+			f.makeCup(W(sp.fx, sp.fy, CUP_H / 2 + 0.02), false);   // opaque half down, like the photos
+			f.makePin(top, 'yellow', W(sp.fx, sp.fy, CUP_H - PIN_COLLAR + 0.06 + PIN_H / 2));
+		} else f.makePin(top, 'yellow', W(sp.fx, sp.fy, PIN_H / 2 + 0.02));
 	}
 
 	step(dt, robot, live) {
@@ -84,7 +96,7 @@ export class HumanPlayers {
 				continue;
 			}
 			p.arm.rotation.z = 0;
-			if (p.s !== s || !live || this.t < (p.readyAt || 0)) continue;
+			if (!this.uses(p, s) || !live || this.t < (p.readyAt || 0)) continue;
 			if (this.stocked(p, robot.field)) { p.readyAt = this.t + COOLDOWN_S; continue; }   // wait a moment after it's taken
 			if (this.clear(p, robot)) { p.swing = 0; p.placed = false; }
 		}
@@ -93,8 +105,8 @@ export class HumanPlayers {
 	// For the HUD: near one of our Loaders, is a stack waiting?
 	status(robot) {
 		const s = robot.alliance === 'red' ? -1 : 1, f = toField(robot.pos());
-		const p = this.people.find((q) => q.s === s && Math.hypot(f.fx - q.s * LOAD, f.fy - q.sy * LOAD) < 26);
+		const p = this.people.find((q) => this.uses(q, s) && Math.hypot(f.fx - q.s * LOAD, f.fy - q.sy * LOAD) < 26);
 		if (!p) return '';
-		return this.stocked(p, robot.field) ? 'Loader: stack ready' : 'Loader: refilling';
+		return this.stocked(p, robot.field) ? 'Loader: ready' : 'Loader: refilling';
 	}
 }

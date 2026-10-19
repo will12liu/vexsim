@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Field, TOGGLES, IN, W, toField, clampVelocities } from './field.js';
 import { Robot, CFG } from './robot.js';
-import { AIRobot } from './ai.js';
+import { AIRobot, STRATEGIES } from './ai.js';
 import { Input } from './input.js';
 import { HumanPlayers } from './human.js';
 import { makeAuton } from './auton.js';
@@ -58,6 +58,8 @@ const field = new Field(RAPIER, world, scene);
 const robot = new Robot(RAPIER, world, scene, field);
 const input = new Input();
 const humans = new HumanPlayers(scene, (m) => toast(m));
+const humanOpts = () => { humans.load = $('mHuman').value; humans.loader = $('mLoader').value; };
+for (const id of ['mHuman', 'mLoader']) $(id).onchange = humanOpts;
 // AI robots for 2v2: partner + two opponents. Built once, switched off outside 2v2.
 const ais = [0, 1, 2].map(() => new AIRobot(RAPIER, world, scene, field, 'red', ''));
 const active = () => (sim.game === 'ai' ? [robot, ...ais] : [robot]);
@@ -89,11 +91,16 @@ function placeAtStart() {
 	// The other three starts go to the AI robots (2v2 only).
 	const others = ['red1', 'red2', 'blue1', 'blue2'].filter((q) => q !== $('start').value);
 	const on = sim.game === 'ai';
+	let opp = 0;
 	ais.forEach((a, i) => {
 		const q = others[i];
 		a.alliance = q.startsWith('red') ? 'red' : 'blue';
+		const partner = a.alliance === robot.alliance;
+		let st = $(partner ? 'mStratP' : opp++ ? 'mStratO2' : 'mStratO1').value;
+		if (st === 'auto') { const keys = Object.keys(STRATEGIES); st = keys[Math.floor(Math.random() * keys.length)]; }
+		a.setStrategy(st);
 		a.bumpMat.color.setHex(a.alliance === 'red' ? 0xd62828 : 0x1e6fd9);
-		a.label = (a.alliance === robot.alliance ? 'AI partner' : 'AI opponent') + ' · ' + q.replace('red', 'R').replace('blue', 'B');
+		a.label = (partner ? 'AI partner' : 'AI opponent') + ' · ' + STRATEGIES[a.strategy].name + ' · ' + q.replace('red', 'R').replace('blue', 'B');
 		a.skill = +$('mSkill').value;
 		a.body.setEnabled(on); a.mesh.visible = on;
 		if (on) placeAt(a, q);
@@ -135,6 +142,7 @@ function practice() { stopAuton(); sim.mode = 'practice'; sim.final = null; }
 
 // ---- Title menu ----------------------------------------------------------------------
 function startGame(game) {
+	humanOpts();
 	sim.game = game; sim.menu = false; $('menu').hidden = true; document.body.classList.remove('menu-open');
 	$('start').value = $('mStart').value;
 	$('alliance').value = $('start').value.startsWith('red') ? 'red' : 'blue';
@@ -315,7 +323,7 @@ function physicsStep() {
 	// Scores are taken once things settle (<SC1>), here 3 s after the buzzer.
 	if (sim.mode === 'ended' && !sim.final && robot.t - sim.endT > 3) { sim.final = field.score(mid()); log(`FINAL red ${sim.final.red} / blue ${sim.final.blue}`); }
 	const live = sim.mode === 'auton' || sim.mode === 'driver';
-	for (const a of ais) if (sim.game === 'ai') { if (live) a.think(DT, active()); else a.stop(); }
+	for (const a of ais) if (sim.game === 'ai') { a.clockLeft = sim.mode === 'driver' ? sim.clock : null; if (live) a.think(DT, active()); else a.stop(); }
 	for (const r of active()) r.step(DT);
 	humans.step(DT, robot, sim.mode === 'practice' || sim.mode === 'driver');
 	field.stepToggles(DT, active());

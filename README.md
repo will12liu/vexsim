@@ -3,6 +3,8 @@
 3D physics simulator of team Titanium's VEX V5RC **Override** (2026–27) robot. Runs in the browser (three.js + Rapier), no build step.
 
 - **Modes:** Free Drive, Solo Match (15 s auton + 1:45 driver), 2v2 vs AI
+- **AI robots (2v2):** pick each one's strategy on the title menu: Scorer (intake bot), Yellow stacker (cascade bot, tall cup + yellow pin stacks on goals you own), Toggle attacker (wedge bot, flips the other alliance's Toggles), Toggle defender (DR4B bot, keeps yours and blocks), Pusher (defense), or Random. All of them park in the Midfield for the last 9 s.
+- **Human player:** pick what they load (cup + your pin, cup + yellow pin, pin only, or off) and at which Loader (both, left, right) on the title menu
 - **Input:** keyboard, Xbox / any gamepad, or a real V5 controller over USB (Chrome/Edge, see `bridge/`)
 - **Robot (10/19):** flex-wheel claw on the back that grabs a cup + pin stack (drive claw first into it, or R1 grab spin; R2 / A lets go), cascade lift, no intake. The human player keeps a stack standing at each of your corner Loaders.
 - Press **?** in the sim for the full controls

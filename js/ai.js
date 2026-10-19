@@ -12,13 +12,29 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const CLAW_REACH = 6.5 + CFG.clawArm;          // robot centre -> held pin with the claw at 90 deg
 const LIFT_FOR = { alliance: CFG.LIFT_ALLIANCE_GOAL_DEG, short: CFG.LIFT_SHORT_GOAL_DEG, tall: CFG.LIFT_TALL_GOAL_DEG };
 
-function aiMesh() {
+// Strategies the AI robots can play, and the kind of robot each one is (from early-season Override
+// designs: intake + flip claw, cascade + claw, low wedge / plow bots for Toggles and defense,
+// DR4B lift with a claw).
+export const STRATEGIES = {
+	scorer: { name: 'Scorer', style: 'intake' },              // alliance-colour pins on any goal
+	stacker: { name: 'Yellow stacker', style: 'cascade' },    // tall cup + yellow pin stacks on goals we own
+	attacker: { name: 'Toggle attacker', style: 'wedge' },    // flips the other alliance's Toggles to our colour
+	defender: { name: 'Toggle defender', style: 'dr4b' },     // keeps our Toggles our colour and blocks robots going for them
+	pusher: { name: 'Pusher (defense)', style: 'wedge' },     // shoves opponents around, mostly the one carrying a piece
+};
+
+function aiMesh(style = 'intake') {
 	const g = new THREE.Group(), s = IN;
 	const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.4, ...o });
 	const metal = mat(0xb8bcc2, { metalness: 0.8, roughness: 0.35 }), dark = mat(0x222428), bump = mat(0x888888, { metalness: 0.1 });
+	const grey = mat(0x8c9096, { metalness: 0.1, roughness: 0.8 });
 	const box = (w, h, d, x, y, z, m, parent = g) => {
 		const b = new THREE.Mesh(new THREE.BoxGeometry(w * s, h * s, d * s), m);
 		b.position.set(x * s, y * s, z * s); b.castShadow = true; parent.add(b); return b;
+	};
+	const bar = (a, b, w, m, parent = g) => {   // a box from point a to point b (side view, x/y), w thick
+		const dx = b[0] - a[0], dy = b[1] - a[1], o = box(Math.hypot(dx, dy), w, w, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, a[2], m, parent);
+		o.rotation.z = Math.atan2(dy, dx); return o;
 	};
 	const L = CFG.length, Wd = CFG.width, hl = L / 2, hw = Wd / 2;
 	box(L, 1, Wd - 3, 0, 1.5, 0, metal);                                    // base plate
@@ -31,20 +47,56 @@ function aiMesh() {
 		const w = new THREE.Mesh(new THREE.CylinderGeometry(1.625 * s, 1.625 * s, 1 * s, 16), dark); w.castShadow = true; axle.add(w);
 		wheels.push({ w, side: z < 0 ? 'L' : 'R' });
 	}
-	const intake = [];
-	for (const y of [2, 5]) {
-		const r = new THREE.Mesh(new THREE.CylinderGeometry(0.8 * s, 0.8 * s, (Wd - 4) * s, 10), mat(0x3a3d42));
-		r.rotation.x = Math.PI / 2; r.position.set((hl - 0.5) * s, y * s, 0); g.add(r); intake.push(r);
-	}
-	// Two-stage lift towers at the back, claw arm hanging from the top stage.
-	for (const z of [-hw + 2, hw - 2]) box(1, 14, 1, -hl + 2.5, 9, z, metal);
-	const top = new THREE.Group(); g.add(top);
-	for (const z of [-hw + 2.8, hw - 2.8]) box(1, 13, 1, -hl + 2.5, 10, z, metal, top);
-	box(1.2, 1, Wd - 4, -hl + 2.5, 16, 0, metal, top);
+	const intake = [], top = new THREE.Group(), stages = [{ g: top, frac: 1 }];
+	g.add(top);
 	const pivot = new THREE.Group(); pivot.position.set(-6.5 * s, (CFG.pinBottomAtHorizontal + PIN_H - 1) * s, 0); top.add(pivot);
-	for (const z of [-3, 3]) box(1, CFG.clawArm, 0.8, 0, -CFG.clawArm / 2, z, metal, pivot);
-	box(1.4, 1.4, 7, 0, -CFG.clawArm, 0, dark, pivot);
-	return { group: g, wheels, intake, stages: [{ g: top, frac: 1 }], clawPivot: pivot, bump };
+	if (style === 'intake') {
+		// Front roller intake, two-stage lift towers at the back, claw arm hanging from the top stage.
+		for (const y of [2, 5]) {
+			const r = new THREE.Mesh(new THREE.CylinderGeometry(0.8 * s, 0.8 * s, (Wd - 4) * s, 10), mat(0x3a3d42));
+			r.rotation.x = Math.PI / 2; r.position.set((hl - 0.5) * s, y * s, 0); g.add(r); intake.push(r);
+		}
+		for (const z of [-hw + 2, hw - 2]) box(1, 14, 1, -hl + 2.5, 9, z, metal);
+		for (const z of [-hw + 2.8, hw - 2.8]) box(1, 13, 1, -hl + 2.5, 10, z, metal, top);
+		box(1.2, 1, Wd - 4, -hl + 2.5, 16, 0, metal, top);
+		for (const z of [-3, 3]) box(1, CFG.clawArm, 0.8, 0, -CFG.clawArm / 2, z, metal, pivot);
+		box(1.4, 1.4, 7, 0, -CFG.clawArm, 0, dark, pivot);
+	} else if (style === 'cascade') {
+		// Tall three-stage cascade in the middle, flex-wheel claw out the back (like ours).
+		for (let k = 0; k < 3; k++) {
+			const st = k === 2 ? top : new THREE.Group();
+			if (k < 2) { g.add(st); stages.push({ g: st, frac: k / 2 }); }
+			for (const z of [-hw + 1.5 + k * 0.6, hw - 1.5 - k * 0.6]) box(1, 20 - k, 1.6, -1 + k * 0.3, 12 + k * 0.5, z, mat(0x2c62c9), st);
+		}
+		box(1.2, 1, Wd - 4, -0.6, 22.5, 0, mat(0x2c62c9), top);
+		box(6, 1, 7, -hl + 2, 7, 0, mat(0x2c62c9), top);                          // claw plate
+		for (const z of [-2.5, 2.5]) for (const y of [1.3, 3.1, 4.9]) {
+			const w = new THREE.Mesh(new THREE.CylinderGeometry(1.2 * s, 1.2 * s, 1 * s, 14), grey);
+			w.position.set((-hl + 2) * s, y * s, z * s); w.castShadow = true; top.add(w);
+		}
+		box(1, 1, 1, 0, 0, 0, dark, pivot).visible = false;
+	} else if (style === 'wedge') {
+		// Low and heavy: a steel plow across the front (rams Toggles, pushes robots), no lift to speak of.
+		const plow = mat(0x9aa1a8, { metalness: 0.9, roughness: 0.25 });
+		for (const z of [-1, 1]) bar([hl - 3, 6.5, z * (hw - 1)], [hl + 1.5, 1, z * (hw - 1)], 0.8, metal);
+		const face = box(0.4, 6.5, Wd + 0.6, hl - 0.6, 3.6, 0, plow); face.rotation.z = -0.65;
+		box(L - 6, 1, Wd - 4, -1, 6.5, 0, metal);                               // top deck
+		box(1, 6, 1, -hl + 3, 9, 0, metal); box(6, 1.6, 2.5, -hl + 4, 12, 0, dark);   // short mast + small claw
+		for (const z of [-hw + 0.6, hw - 0.6]) box(L, 1.2, 1.2, 0, 4.4, z, bump);
+		box(1, 1, 1, 0, 0, 0, dark, pivot).visible = false;
+	} else {
+		// DR4B: two crossed four-bar stages on each side, claw on the top.
+		const red = mat(0xc8202a, { roughness: 0.45 });
+		for (const z of [-hw + 1.4, hw - 1.4]) {
+			box(1, 8, 1, -hl + 4, 5, z, metal); box(1, 8, 1, hl - 4, 5, z, metal);   // towers
+			bar([-hl + 4, 8, z], [hl - 4, 15, z], 0.8, red, top); bar([-hl + 4, 15, z], [hl - 4, 8, z], 0.8, red, top);
+			bar([-hl + 4, 15, z], [hl - 4, 22, z], 0.8, red, top); bar([-hl + 4, 22, z], [hl - 4, 15, z], 0.8, red, top);
+		}
+		box(L - 6, 1, Wd - 2, 0, 22.5, 0, metal, top);
+		for (const z of [-2.5, 2.5]) box(1.2, 5, 1, -hl + 1, 20, z, dark, top);   // claw fingers off the back of the top
+		box(1, 1, 1, 0, 0, 0, dark, pivot).visible = false;
+	}
+	return { group: g, wheels, intake, stages, clawPivot: pivot, bump };
 }
 
 // The AI robots keep the old Titanium design: a front intake that hands pieces up a ramp to a claw
@@ -57,8 +109,24 @@ export class AIRobot extends Robot {
 		this.ai = { state: 'fetch', target: null, t: 0, stuckT: 0, lastPos: null, ban: new Map() };
 	}
 
+	// Pick a strategy (STRATEGIES key); the robot is rebuilt as the kind of robot that plays it.
+	setStrategy(key) {
+		this.strategy = STRATEGIES[key] ? key : 'scorer';
+		const style = STRATEGIES[this.strategy].style;
+		if (style !== this.style) {
+			const vis = this.mesh.visible;
+			this.scene.remove(this.mesh);
+			this.style = style;
+			this.mesh = this.buildMesh();
+			this.mesh.visible = vis;
+			this.scene.add(this.mesh);
+			this.bumpMat.color.setHex(COLORS[this.alliance]);
+		}
+		this.resetState();
+	}
+
 	buildMesh() {
-		const m = aiMesh();
+		const m = aiMesh(this.style);
 		Object.assign(this, { wheels: m.wheels, intakeRollers: m.intake, clawRollers: [], pistons: [], stages: m.stages,
 			clawPivot: m.clawPivot, driveGears: [], liftGears: [], liftLeds: [], bumpMat: m.bump });
 		return m.group;
@@ -220,7 +288,7 @@ export class AIRobot extends Robot {
 			const t = ((g.fx - p.fx) * dx + (g.fy - p.fy) * dy) / L2;
 			if (t <= 0 || t >= 1) continue;
 			const cx = p.fx + dx * t, cy = p.fy + dy * t, off = Math.hypot(g.fx - cx, g.fy - cy);
-			const clear = g.type === 'tall' ? 20 : 15;   // goal base + half the robot
+			const clear = g.type === 'tall' ? 22 : 18;   // goal base + the robot's half-diagonal + a margin
 			if (off < clear && t < bestT) { bestT = t; best = { g, cx, cy, off, clear }; }
 		}
 		if (!best) return { fx, fy };
@@ -252,30 +320,155 @@ export class AIRobot extends Robot {
 	setState(st) { Object.assign(this.ai, { state: st, t: 0, stuckT: 0, lastPos: null, aligning: false }); }
 	arcade(fwd, turn) { this.leftCmd = clamp(fwd - turn, -1, 1) * 127; this.rightCmd = clamp(fwd + turn, -1, 1) * 127; }
 
-	// Called every physics step. `others` are all robots (to avoid chasing the same pin).
+	// Called every physics step. `others` are all robots (to avoid chasing the same pin, and to find
+	// opponents to block or push). this.clockLeft = seconds of driver control left (null otherwise).
 	think(dt, others) {
-		const ai = this.ai, field = this.field;
+		const ai = this.ai;
 		ai.t += dt;
 		for (const [k, until] of ai.ban) if (until < this.t) ai.ban.delete(k);
 		this.liftMode = 'pos'; this.brake = 'coast';
-		// Stuck check: barely moved in 2.5 s while trying to drive -> back off and pick something else.
+		// Endgame: everyone parks in our half of the Midfield for the 8 points.
+		if (this.clockLeft != null && this.clockLeft < 9) {
+			if (this.claw && !this.field.cups.includes(this.claw)) this.releaseClaw(true);
+			this.intakeCmd = 0; this.clawSpin = 0; this.park(this.fpos()); return;
+		}
+		// Stuck check: barely moved in 1.5 s while trying to drive -> back off and pick something else.
+		// Not while it means to be pressed against something (ramming a Toggle, pushing a robot).
 		const p = this.fpos();
-		if (ai.state !== 'unstick' && !ai.aligning) {
+		if (ai.state !== 'unstick' && !ai.aligning && !ai.pressing) {
 			ai.stuckT += dt;
 			if (ai.stuckT > 1.5) {
 				if (ai.lastPos && Math.hypot(p.fx - ai.lastPos.fx, p.fy - ai.lastPos.fy) < 2.5) {
 					if (ai.target) ai.ban.set(ai.target, this.t + 8);
-					ai.state = 'unstick'; ai.t = 0; ai.prev = this.claw ? 'score' : 'fetch'; ai.target = null;
+					if (ai.tgt) ai.ban.set(ai.tgt, this.t + 10);   // can't get to that Toggle (robot in the way): try another for a while
+					ai.prev = ai.state; ai.state = 'unstick'; ai.t = 0; ai.target = null; ai.tgt = null;
 				}
 				ai.stuckT = 0; ai.lastPos = p;
 			}
 		}
+		ai.pressing = false;
 		if (ai.state === 'unstick') {
 			this.arcade(-0.6, ai.t < 0.5 ? 0.5 : 0);
-			if (ai.t > 0.9) { ai.state = ai.prev; ai.t = 0; ai.stuckT = 0; ai.lastPos = null; }
+			if (ai.t > 0.9) { ai.state = ai.prev === 'unstick' ? 'fetch' : ai.prev; ai.t = 0; ai.stuckT = 0; ai.lastPos = null; }
 			return;
 		}
+		const mine = this.alliance, theirs = mine === 'red' ? 'blue' : 'red';
+		const toggles = this.field.toggles;
+		if (this.strategy === 'attacker') {
+			// Their Toggles first (the one guarding the most yellow pins), then ours if they've been
+			// turned; all set: sit by their Toggles and shove away anyone coming to turn them back.
+			const want = toggles.filter((t) => t.state !== mine && !ai.ban.has(t)).sort((a, b) => (b.quad.startsWith(theirs) - a.quad.startsWith(theirs)) || this.yellowIn(b.quad) - this.yellowIn(a.quad));
+			if (want.length) { this.flipToggle(want[0], mine, dt); return; }
+			this.guard(toggles.filter((t) => t.quad.startsWith(theirs)), others, dt);
+			return;
+		}
+		if (this.strategy === 'defender') {
+			// Keep our two Toggles our colour; otherwise stand in front of the one worth more and block.
+			const own = toggles.filter((t) => t.quad.startsWith(mine));
+			const bad = own.find((t) => t.state !== mine && !ai.ban.has(t));
+			if (bad) { this.flipToggle(bad, mine, dt); return; }
+			this.guard(own, others, dt);
+			return;
+		}
+		if (this.strategy === 'pusher') {
+			const opp = this.opponent(others);
+			if (opp) { this.push(opp); return; }
+			this.park(p); return;
+		}
+		this.scoreCycle(dt, others, p);
+	}
+
+	// Yellow pin halves already placed in a quadrant (what its Toggle is worth).
+	yellowIn(quad) {
+		let n = 0;
+		for (const pin of this.field.pins) {
+			if (pin.held) continue;
+			const t = toField(pin.body.translation()), g = this.field.goals.find((g) => Math.hypot(t.fx - g.fx, t.fy - g.fy) < 3 && t.h > g.base);
+			if (g && g.quad === quad) n += (pin.top === 'yellow') + (pin.bottom === 'yellow');
+		}
+		return n;
+	}
+
+	// Turn a Toggle until it shows `color`: line up square in front of it, ram it, back off, ram again
+	// (one face per hit, see Field.stepToggles). Done when it has settled on the colour.
+	flipToggle(tg, color, dt) {
+		const ai = this.ai, n = { x: tg.n[0], y: tg.n[1] }, hl = CFG.length / 2;
+		if (ai.tgt !== tg) { ai.tgt = tg; ai.tph = 'approach'; ai.tt = 0; }
+		ai.tt += dt;
+		if (this.claw) this.releaseClaw(true);   // both hands free to ram
+		this.intakeCmd = 0; this.clawSpin = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG; this.liftTarget = 0;
+		const face = Math.atan2(-n.y, -n.x), p = this.fpos();
+		const off = (p.fx - tg.fx) * n.x + (p.fy - tg.fy) * n.y;   // distance out from the wall
+		if (ai.tph === 'approach') {
+			const stand = { fx: tg.fx + n.x * (hl + 12), fy: tg.fy + n.y * (hl + 12) };
+			if (this.driveTo(stand.fx, stand.fy, 0.85, false, null) > 3) return;
+			ai.aligning = true;
+			if (this.turnTo(face) < 0.07) { ai.tph = 'ram'; ai.tt = 0; ai.aligning = false; }
+			return;
+		}
+		if (ai.tph === 'ram') {
+			if (off > hl + 22) { ai.tph = 'approach'; return; }   // pushed away / not lined up: start over
+			ai.pressing = true;
+			this.arcade(1, this.steer(wrap(face - this.heading())) * 0.6);
+			if (tg.flipped || ai.tt > 1.8) { ai.tph = 'back'; ai.tt = 0; }
+			return;
+		}
+		if (ai.tph === 'back') {
+			ai.pressing = true;
+			this.arcade(-0.8, 0);
+			if (off > hl + 9 || ai.tt > 0.9) { ai.tph = 'settle'; ai.tt = 0; }
+			return;
+		}
+		// settle: wait for it to stop turning, then hit again if it isn't our colour yet.
+		ai.pressing = true;
+		this.arcade(0, this.steer(wrap(face - this.heading())) * 0.6);
+		if (tg.set || ai.tt > 0.8) { ai.tph = tg.state === color || off > hl + 16 ? 'approach' : 'ram'; ai.tt = 0; if (tg.state === color) ai.tgt = null; }
+	}
+
+	// Stand ~20" out in front of the Toggle worth the most; push away an opponent that comes near it.
+	guard(list, others, dt) {
+		const ai = this.ai, hl = CFG.length / 2;
+		this.intakeCmd = 0; this.clawSpin = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG; this.liftTarget = 0;
+		if (!list.length) { this.park(this.fpos()); return; }
+		const tg = list.slice().sort((a, b) => this.yellowIn(b.quad) - this.yellowIn(a.quad))[0];
+		const threat = others.filter((r) => r.alliance !== this.alliance && r.mesh.visible)
+			.map((r) => ({ r, d: Math.hypot(toField(r.pos()).fx - tg.fx, toField(r.pos()).fy - tg.fy) }))
+			.filter((o) => o.d < 40).sort((a, b) => a.d - b.d)[0];
+		if (threat) { this.push(threat.r); return; }
+		const stand = { fx: tg.fx + tg.n[0] * (hl + 14), fy: tg.fy + tg.n[1] * (hl + 14) };
+		// A partner already sitting there (e.g. lined up on the Toggle): stand beside it instead.
+		if (others.some((r) => r !== this && r.alliance === this.alliance && Math.hypot(toField(r.pos()).fx - stand.fx, toField(r.pos()).fy - stand.fy) < 16)) {
+			stand.fx += -tg.n[1] * 20; stand.fy += tg.n[0] * 20;
+		}
+		if (this.driveTo(stand.fx, stand.fy, 0.8, false, null) < 3) {
+			ai.aligning = true;
+			if (this.turnTo(Math.atan2(tg.n[1], tg.n[0])) < 0.1) this.arcade(0, 0);   // facing out, ready to meet them
+		} else ai.aligning = false;
+		ai.stuckT = 0;
+	}
+
+	// Nearest opponent, preferring one that's carrying a piece.
+	opponent(others) {
+		const p = this.fpos();
+		return others.filter((r) => r.alliance !== this.alliance && r.mesh.visible)
+			.map((r) => { const q = toField(r.pos()); return { r, c: Math.hypot(q.fx - p.fx, q.fy - p.fy) - (r.claw ? 30 : 0) }; })
+			.sort((a, b) => a.c - b.c)[0]?.r || null;
+	}
+
+	// Drive straight into a robot at full power (stays out of the opponents' Load Zones).
+	push(r) {
+		const q = toField(r.pos());
+		this.intakeCmd = 0; this.clawSpin = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG; this.liftTarget = 0;
+		if (Math.abs(q.fx) > 56 && Math.abs(q.fy) > 44) { this.park(this.fpos()); return; }   // Load Zones are protected
+		const d = this.driveTo(q.fx, q.fy, 1, false, r);
+		if (d < 22) this.ai.pressing = true;
+	}
+
+	// Scorer and stacker: fetch a piece, carry it to a goal, drop it on.
+	scoreCycle(dt, others, p) {
+		const ai = this.ai, field = this.field, stack = this.strategy === 'stacker';
 		if (this.claw && ai.state === 'fetch') { this.setState('score'); ai.target = null; }
+		if (ai.state !== 'fetch' && ai.state !== 'score' && ai.state !== 'leave') ai.state = this.claw ? 'score' : 'fetch';
 
 		if (ai.state === 'fetch') {
 			this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG; this.liftTarget = 0;
@@ -284,7 +477,10 @@ export class AIRobot extends Robot {
 			const valid = (o) => o && !o.held && (field.pins.includes(o) || field.cups.includes(o)) && !this.isScored(o);
 			if (ai.target && ai.t > 7) { ai.ban.set(ai.target, this.t + 15); ai.target = null; }   // can't get it: try another
 			if (!valid(ai.target)) ai.t = 0;
-			if (!valid(ai.target)) ai.target = this.pickGoal('pin') ? this.pickPin(others) : this.pickGoal('cup') ? this.pickCup(others) : null;
+			// Stacker: a cup whenever one of its goals has a pin on top, otherwise a yellow pin.
+			if (!valid(ai.target)) ai.target = stack
+				? (this.pickGoal('cup') ? this.pickCup(others) : this.pickPin(others)) || (this.pickGoal('pin') ? this.pickPin(others) : null)
+				: this.pickGoal('pin') ? this.pickPin(others) : this.pickGoal('cup') ? this.pickCup(others) : null;
 			if (!ai.target) { this.park(p); return; }
 			const t = toField(ai.target.body.translation());
 			this.driveTo(t.fx, t.fy, 0.75);
@@ -351,7 +547,10 @@ export class AIRobot extends Robot {
 		let best = null, bestCost = Infinity;
 		for (const pin of this.field.pins) {
 			if (pin.held || taken.has(pin) || this.ai.ban.has(pin)) continue;
-			const value = [pin.top, pin.bottom].reduce((a, c) => a + (c === mine ? 1 : c === 'yellow' ? 0.4 : -1), 0);
+			// Stacker wants yellow (worth 10 a half on a goal we own); everyone else their own colour.
+			const value = this.strategy === 'stacker'
+				? [pin.top, pin.bottom].reduce((a, c) => a + (c === 'yellow' ? 1 : c === mine ? 0.3 : -1), 0) - (pin.top !== 'yellow' && pin.bottom !== 'yellow' ? 9 : 0)
+				: [pin.top, pin.bottom].reduce((a, c) => a + (c === mine ? 1 : c === 'yellow' ? 0.4 : -1), 0);
 			if (value <= 0) continue;
 			const t = toField(pin.body.translation());
 			if (Math.abs(t.fx) > 64 || Math.abs(t.fy) > 64 || this.isScored(pin)) continue;
@@ -375,8 +574,14 @@ export class AIRobot extends Robot {
 				top = { h: t.h, surface: cup ? t.h + CUP_H / 2 : null, cupSeat: cup ? null : t.h - PIN_H / 2 + PIN_COLLAR };
 			}
 		}
-		if (kind === 'cup') return top.cupSeat != null && top.cupSeat < 14 ? top.cupSeat : null;
-		return top.surface != null && top.surface < 16 ? top.surface : null;   // keep stacks short enough to stay up
+		const tall = this.strategy === 'stacker' ? 14 : 0;   // the stacker builds them taller
+		if (kind === 'cup') return top.cupSeat != null && top.cupSeat < 14 + tall ? top.cupSeat : null;
+		return top.surface != null && top.surface < 16 + tall ? top.surface : null;   // keep stacks short enough to stay up
+	}
+
+	// Pieces already on a goal.
+	stackSize(g) {
+		return [...this.field.pins, ...this.field.cups].filter((o) => { if (o.held) return false; const t = toField(o.body.translation()); return Math.hypot(t.fx - g.fx, t.fy - g.fy) < 2.5 && t.h > g.base; }).length;
 	}
 
 	// Nearest free cup that isn't already part of a stack.
@@ -397,9 +602,13 @@ export class AIRobot extends Robot {
 	pickGoal(kind = 'pin') {
 		const p = this.fpos();
 		let best = null, bestD = Infinity;
+		const stack = this.strategy === 'stacker', owner = Object.fromEntries(this.field.toggles.map((t) => [t.quad, t.state]));
 		for (const g of this.field.goals) {
 			if (g.type === 'tall' || (g.color !== 'neutral' && g.color !== this.alliance) || this.ai.ban.has(g) || this.goalTop(g, this.claw, kind) == null) continue;
-			const d = Math.hypot(g.fx - p.fx, g.fy - p.fy);
+			// Stacker: only goals whose yellow pins score for us (our quadrant's Toggle is our colour,
+			// or our own alliance goals), and keeps building the stack it already started.
+			if (stack && g.color !== this.alliance && owner[g.quad] !== this.alliance) continue;
+			const d = Math.hypot(g.fx - p.fx, g.fy - p.fy) - (stack ? 25 * this.stackSize(g) : 0);
 			if (d < bestD) { bestD = d; best = g; }
 		}
 		return best;

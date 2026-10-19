@@ -161,6 +161,15 @@ void run_routine() {
     <label class="f">Your start<select id="mStart"><option value="red1">Red 1 Toggle</option><option value="red2">Red 2 Toggle</option><option value="blue1">Blue 1 Toggle</option><option value="blue2">Blue 2 Toggle</option></select></label>
     <label class="f">AI skill<select id="mSkill"><option value="0.6">Rookie</option><option value="0.8" selected>Regular</option><option value="1">Pro</option></select></label>
     <button id="mControls">Controls</button>
+  </div>
+  <div class="opts">
+    <label class="f">Human player loads<select id="mHuman"><option value="cupOwn" selected>Cup + your-colour pin</option><option value="cupYellow">Cup + yellow pin</option><option value="pinOwn">Your-colour pin only</option><option value="pinYellow">Yellow pin only</option><option value="off">Nothing (off)</option></select></label>
+    <label class="f">At which Loader<select id="mLoader"><option value="both" selected>Both</option><option value="left">Left (from your station)</option><option value="right">Right (from your station)</option></select></label>
+  </div>
+  <div class="opts">
+    <label class="f">AI partner (2v2)<select id="mStratP"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Yellow stacker (cascade bot)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender" selected>Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
+    <label class="f">AI opponent 1<select id="mStratO1"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Yellow stacker (cascade bot)</option><option value="attacker" selected>Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
+    <label class="f">AI opponent 2<select id="mStratO2"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker" selected>Yellow stacker (cascade bot)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
     <button id="mPad" title="For USB controllers the browser does not pick up by itself">Connect controller</button>
   </div>
   <div class="hint">Click a mode, press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>, or use the D-pad + A on a controller. <kbd>Esc</kbd> brings this menu back.</div>
