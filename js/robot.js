@@ -3,7 +3,7 @@
 // port of src/opcontrol.cpp. Robot-local frame (inches): +x = motor forward, +y up, +z right.
 // The claw is on the back (-x); the driver drives claw first (opcontrol starts with inverse = -1).
 import * as THREE from 'three';
-import { IN, W, PIN_H, CUP_H, MID, GROUP, groups, toField } from './field.js';
+import { IN, W, PIN_H, CUP_H, MID, GROUP, groups, toField, LOADER } from './field.js';
 import { buildRobotMesh } from './robotmodel.js';
 
 // ---- Constants mirrored from the real code (include/mechanisms.h, robot-config.cpp) ----
@@ -171,7 +171,36 @@ export class Robot {
 	}
 
 	// No claw frame to hit the Toggle any more: only the robot body flips it.
-	holdAtToggle() { this.toggleHitV = 0; }
+	// The Loader tubes are solid (field.js), but the robot's back is open between the corner towers:
+	// stop the back edge at the front of a tube instead of letting the tube into the robot.
+	holdAtToggle() {
+		this.toggleHitV = 0;
+		const hl = CFG.length / 2, hw = CFG.width / 2, tw = LOADER.inner / 2 + 0.12;
+		for (const L of this.field.loaders || []) {
+			const l = this.toLocal(W(L.px, L.fy, LOADER.base));
+			if (Math.abs(l.z) > hw + tw || l.x > -hl + 3 || l.x < -hl - tw - 0.3) continue;
+			const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat()), v = this.body.linvel();
+			const vx = v.x * fwd.x + v.z * fwd.z;
+			if (vx < 0) this.body.setLinvel({ x: v.x - vx * fwd.x, y: 0, z: v.z - vx * fwd.z }, true);
+		}
+	}
+
+	// The Loader just behind the robot's back, if any: { L, l (tube centre at its base, robot-local
+	// inches), ok }. ok = it can be taken now: a stack waiting, robot square to the wall (within
+	// 10 deg), the stack centred on the claw (within 1.2"), the lift at the base and the back
+	// within the rollers' reach (2.5"). Otherwise the robot just bumps the tube.
+	loaderReach() {
+		const hl = CFG.length / 2, hw = CFG.width / 2;
+		for (const L of this.field.loaders || []) {
+			const l = this.toLocal(W(L.px, L.fy, LOADER.base));
+			if (Math.abs(l.z) > hw + 2.2 || l.x > -hl + 0.5 || l.x < -hl - 6) continue;
+			const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat());
+			const e = this.liftIn() - LOADER.base;
+			const ok = L.ready && fwd.x * L.n > Math.cos(10 * DEG) && Math.abs(l.z) < 1.2 && e > -3 && e < 1.5 && l.x > -hl - 2.5;
+			return { L, l, ok };
+		}
+		return null;
+	}
 
 	// Safety net against solver kicks (e.g. the turning Toggle shoving the claw): the robot can't
 	// gain speed faster than its wheels could push it (~1 g), and never past 2.6 m/s / 12 rad/s.
@@ -325,6 +354,16 @@ export class Robot {
 		for (const r of this.justReleased || []) if ((r.t -= dt) <= 0 && !r.pin.held && (this.field.pins.includes(r.pin) || this.field.cups.includes(r.pin))) for (const c of colsOf(r.pin)) c.setCollisionGroups(0xffffffff);
 		if (this.justReleased) this.justReleased = this.justReleased.filter((r) => r.t > 0);
 		this.releaseCool = Math.max(0, this.releaseCool - dt);
+		// Out of a Loader (see loaderReach): the rollers have to be spinning in to pull it out.
+		if (!this.claw && this.clawSpin < -30 && this.releaseCool <= 0) {
+			const r = this.loaderReach();
+			if (r && r.ok) {
+				const st = r.L.stack, o = this.field.takeLoader(r.L);
+				this.grab(o);
+				for (const k of st) if (!k.held) this.field.freePiece(k);
+				this.op.clawOut = false;
+			}
+		}
 		// Grab: an upright cup (with its pin) or pin whose bottom is at the rollers, driven in between
 		// them. The claw doesn't have to be spinning: driving into the stack squeezes it in. With R1's
 		// grab spin on, the rollers reach out and pull it in from the mouth. Not while spinning to let go.

@@ -57,7 +57,7 @@ if (world.integrationParameters) world.integrationParameters.numSolverIterations
 const field = new Field(RAPIER, world, scene);
 const robot = new Robot(RAPIER, world, scene, field);
 const input = new Input();
-const humans = new HumanPlayers(scene, (m) => toast(m));
+const humans = new HumanPlayers(scene, field, (m) => toast(m));
 const humanOpts = () => { humans.load = $('mHuman').value; humans.loader = $('mLoader').value; };
 for (const id of ['mHuman', 'mLoader']) $(id).onchange = humanOpts;
 // AI robots for 2v2: partner + two opponents. Built once, switched off outside 2v2.
@@ -206,6 +206,7 @@ function renderControls() {
 		['Lift down', k('L2'), k('LT'), k('G')],
 		['Claw grab spin', k('R1'), k('RB'), k('E'), 'Toggle. Pulls a cup + pin stack in between the rollers; stops by itself once it\'s in (optical sensor). You don\'t need it: driving claw first into a stack grabs it too'],
 		['Claw release spin', k('R2') + ' / ' + k('A'), k('RT') + ' / ' + k(x.A), k('Q') + ' / ' + k('F'), 'Toggle. Lets go of the stack (onto a goal if it\'s over one). Lowering the lift onto a goal also lets go'],
+		['Take a stack from your Loader', k('L1') + ' + ' + k('R1'), k('LB') + ' + ' + k('RB'), k('R') + ' + ' + k('E'), 'Lift up to the tube\'s base (12"; the bar at the bottom says when it\'s right), claw spinning in, back in square to the wall. Crooked or off-centre it only bumps the tube. Your human player (glowing spot, YOUR LOADER tag) refills it'],
 		['Flip drive direction', k('↑'), 'D-pad ↑', k('↑'), 'Starts claw first (stick up drives claw first), like opcontrol.cpp; turning unchanged'],
 		['Run auton (practice only)', k('↓'), 'D-pad ↓', k('↓')],
 		['E-stop a running auton test', k('L1') + '+' + k('R1'), k('LB') + '+' + k('RB'), k('R') + '+' + k('E')],

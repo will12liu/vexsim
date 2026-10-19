@@ -38,6 +38,17 @@ const GOALS = [
 	{ fx: 24, fy: -48, type: 'short', color: 'neutral' },
 ];
 
+// Loaders: a clear tube hung on the inside of each alliance-station wall near the corner, in the
+// Load Zone, with its stack standing on a base at about wall height (like the team's photo). The
+// human player slides the tube up, sets the stack in and slides it back down (human.js). The
+// tube is open on the field side: the robot backs in square with the lift at the base and the
+// claw spinning in, and the rollers pull the stack out. n = which way the open side faces (+1 = +fx).
+export const LOADER = { base: 12, off: 2.4, inner: 3.6, h: 13, slide: 8 };
+const LOADERS = [
+	{ alliance: 'red', fx: -72.5, fy: 62, n: 1 }, { alliance: 'red', fx: -72.5, fy: -62, n: 1 },
+	{ alliance: 'blue', fx: 72.5, fy: 62, n: -1 }, { alliance: 'blue', fx: 72.5, fy: -62, n: -1 },
+];
+
 // Toggles: one per Quadrant, centred on each wall. n = inward normal (field coords).
 export const TOGGLES = [
 	{ quad: 'red1', fx: -FIELD_HALF, fy: 0, n: [1, 0] },
@@ -158,10 +169,27 @@ function ringColliders(R, desc, rInner, thick, h, yCenter, extra) {
 	return out;
 }
 
+// Text tag that always faces the camera, with a little arrow pointing down at the thing.
+export function textSprite(text, color, width = 18) {
+	const c = document.createElement('canvas');
+	c.width = 640; c.height = 160;
+	const g = c.getContext('2d');
+	g.font = 'bold 64px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+	const w = g.measureText(text).width + 60;
+	g.fillStyle = 'rgba(10,12,16,0.78)';
+	g.beginPath(); g.roundRect((640 - w) / 2, 8, w, 96, 22); g.fill();
+	g.fillStyle = color; g.fillText(text, 320, 58);
+	g.beginPath(); g.moveTo(300, 108); g.lineTo(340, 108); g.lineTo(320, 150); g.closePath(); g.fill();
+	const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false }));
+	sp.scale.set(width * IN, ((width * 160) / 640) * IN, 1);
+	sp.renderOrder = 10;
+	return sp;
+}
+
 export class Field {
 	constructor(R, world, scene) {
 		this.R = R; this.world = world; this.scene = scene;
-		this.goals = []; this.pins = []; this.cups = []; this.toggles = [];
+		this.goals = []; this.pins = []; this.cups = []; this.toggles = []; this.loaders = [];
 		this.dynamicMeshes = [];
 		this.buildStatic();
 		// Floor, goals etc. (fixed bodies with default groups): the claw frame passes over them. Only
@@ -215,16 +243,93 @@ export class Field {
 				scene.add(post);
 			}
 		}
-		// Loaders: corner posts (visual + solid).
-		const loaderMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-		for (const [fx, fy] of [[-69, 69], [-69, -69], [69, 69], [69, -69]]) {
-			world.createCollider(R.ColliderDesc.cuboid(3 * IN, 7 * IN, 3 * IN).setTranslation(fx * IN, 7 * IN, -fy * IN), wallBody);
-			const m = new THREE.Mesh(new THREE.BoxGeometry(6 * IN, 14 * IN, 6 * IN), loaderMat);
-			m.position.copy(W(fx, fy, 7)); m.castShadow = true;
-			scene.add(m);
-		}
+		for (const L of LOADERS) this.buildLoader(L);
 		for (const g of GOALS) this.buildGoal(g);
 		for (const t of TOGGLES) this.buildToggle(t);
+	}
+
+	// ---- Loaders ---------------------------------------------------------------
+	// Small clear tube, open on the field side, on an alliance-coloured base, hooked over the wall.
+	// The tube itself (the sleeve) slides up while loading. Tag + floor glow are switched on for the
+	// driver's own loaders by setMine().
+	buildLoader(L) {
+		const { R, world, scene } = this, c = COLORS[L.alliance], hw = LOADER.inner / 2 + 0.12;
+		const px = L.fx + L.n * LOADER.off, grp = new THREE.Group();
+		grp.position.copy(W(px, L.fy, 0));
+		grp.rotation.y = L.n > 0 ? 0 : Math.PI;   // local +x = the open side, toward the field
+		scene.add(grp);
+		const box = (sx, sy, sz, x, y, z, mat, parent = grp) => {
+			const m = new THREE.Mesh(new THREE.BoxGeometry(sx * IN, sy * IN, sz * IN), mat);
+			m.position.set(x * IN, y * IN, z * IN); m.castShadow = true; parent.add(m);
+			return m;
+		};
+		const team = new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, emissive: c, emissiveIntensity: 0 });
+		const alu = new THREE.MeshStandardMaterial({ color: 0xc8ccd1, metalness: 0.8, roughness: 0.35 });
+		const clear = new THREE.MeshPhysicalMaterial({ color: 0xeef6ff, transparent: true, opacity: 0.28, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
+		const b = LOADER.base, h = LOADER.h, w = LOADER.inner + 0.8, off = LOADER.off;
+		// Base the stack stands on, and the bracket that hooks it over the wall.
+		box(w, 0.6, w, 0, b - 0.3, 0, team);
+		box(0.25, 4, 3, -off, b - 0.6 + 2, 0, alu);
+		box(off - w / 2 + 0.2, 0.5, 3, -(off + w / 2) / 2, b - 0.35, 0, alu);
+		box(1.6, 0.25, 3, -off - 0.7, WALL_H + 0.9, 0, alu);
+		const body = world.createRigidBody(R.RigidBodyDesc.fixed());
+		world.createCollider(R.ColliderDesc.cuboid((w / 2) * IN, 0.3 * IN, (w / 2) * IN).setTranslation(px * IN, (b - 0.3) * IN, -L.fy * IN), body);
+		// Tube walls (back + sides) as one solid block: robots can't drive into it.
+		world.createCollider(R.ColliderDesc.cuboid(hw * IN, (h / 2) * IN, hw * IN).setTranslation(px * IN, (b + h / 2) * IN, -L.fy * IN), body);
+		// The sleeve: back + two clear sides, coloured bands at both ends, a handle at the top.
+		const sleeve = new THREE.Group();
+		sleeve.position.y = b * IN;
+		grp.add(sleeve);
+		box(0.12, h, 2 * hw, -hw + 0.06, h / 2, 0, clear, sleeve);
+		for (const z of [-1, 1]) box(2 * hw, h, 0.12, 0, h / 2, z * (hw - 0.06), clear, sleeve);
+		for (const z of [-1, 1]) box(0.3, h, 0.3, hw - 0.15, h / 2, z * (hw - 0.15), alu, sleeve);   // edges of the open side
+		for (const y of [0.35, h - 0.35]) {
+			box(0.4, 0.7, 2 * hw + 0.2, -hw, y, 0, team, sleeve);
+			for (const z of [-1, 1]) box(2 * hw + 0.2, 0.7, 0.4, 0, y, z * hw, team, sleeve);
+		}
+		box(1.4, 0.6, 2.2, -hw - 0.5, h - 0.35, 0, team, sleeve);
+		// Load Zone glow and the floating tag (ours only).
+		const zoneMat = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.2, depthWrite: false });
+		const zone = new THREE.Mesh(new THREE.PlaneGeometry(14 * IN, 26 * IN), zoneMat);
+		zone.rotation.x = -Math.PI / 2;
+		zone.position.copy(W(L.fx + L.n * 7.25, Math.sign(L.fy) * 59, 0.03));
+		scene.add(zone);
+		const tag = textSprite('YOUR LOADER', L.alliance === 'red' ? '#ff6b6b' : '#6bb0ff');
+		tag.position.set(0, (b + h + 6) * IN, 0);
+		grp.add(tag);
+		this.loaders.push({ ...L, px, grp, sleeve, team, zone, zoneMat, tag, mine: false, slideY: 0, stack: null, ready: false });
+	}
+
+	removePiece(o) {
+		this.world.removeRigidBody(o.body); this.scene.remove(o.mesh);
+		this.pins = this.pins.filter((p) => p !== o); this.cups = this.cups.filter((p) => p !== o);
+	}
+
+	// The claw takes loader L's stack: hand over its bottom piece (the claw grabs it and its partner).
+	takeLoader(L) {
+		const st = L.stack;
+		L.stack = null; L.ready = false;
+		for (const o of st) o.held = null;
+		return st.reduce((a, o) => (o.body.translation().y < a.body.translation().y ? o : a));
+	}
+
+	// A piece the loader was holding that nothing picked up: back to a normal, solid piece.
+	freePiece(o) {
+		o.body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+		for (let i = 0; i < o.body.numColliders(); i++) o.body.collider(i).setCollisionGroups(0xffffffff);
+	}
+
+	// The driver's own loaders (the ones their human player uses) get the tag and glow.
+	setMine(fn) { for (const L of this.loaders) { L.mine = fn(L); L.tag.visible = L.zone.visible = L.mine; } }
+
+	syncLoaders() {
+		const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 250);
+		for (const L of this.loaders) {
+			L.sleeve.position.y = (LOADER.base + L.slideY) * IN;
+			L.team.emissiveIntensity = L.mine ? 0.3 + 0.5 * pulse : 0;
+			L.zoneMat.opacity = 0.12 + 0.12 * pulse;
+			L.tag.material.opacity = L.ready ? 1 : 0.5;
+		}
 	}
 
 	buildTape() {
@@ -571,6 +676,7 @@ export class Field {
 
 	syncMeshes() {
 		this.syncOwners();
+		this.syncLoaders();
 		for (const o of [...this.pins, ...this.cups]) {
 			const t = o.body.translation(), r = o.body.rotation();
 			o.mesh.position.set(t.x, t.y, t.z);

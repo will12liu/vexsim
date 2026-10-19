@@ -1,70 +1,50 @@
-// Human players standing behind the wall at each corner Loader (Override: Drive Team Members put
-// match loads in through their alliance's Loaders, driver period only). Ours keep a cup with a pin
-// in it (or just a pin, picked before the match: `load`) standing on the floor in front of our
-// Loaders (both, or only the left / right one as seen from our station: `loader`). When the spot is
-// empty they put a new one there. The robot drives claw first into it and the claw takes it.
+// Human players standing behind the wall at each Loader (Override: Drive Team Members put match
+// loads in through their alliance's Loaders). Ours keep our Loaders filled with a cup with a pin in
+// it (or just a pin, picked before the match: `load`), at both Loaders or only the left / right one
+// as seen from our station (`loader`). Loading: slide the clear tube up, set the stack on the base,
+// slide the tube back down (~1 s). The robot backs in square and the claw pulls the stack out
+// (robot.js). Only our alliance's human players load; theirs just stand there, greyed out.
 import * as THREE from 'three';
-import { IN, W, toField, CUP_H, PIN_H, PIN_COLLAR } from './field.js';
-import { CFG } from './robot.js';
+import { IN, W, CUP_H, PIN_H, PIN_COLLAR, LOADER, COLORS } from './field.js';
 
-const HAND_S = 0.35;       // arm swing before the stack is down
-const SWING_S = 0.8;
-const COOLDOWN_S = 1.5;    // after one is taken, before the next goes down
-const SPOT = 69;           // Loader post position (field inches, |fx| and |fy|)
-const LOAD = SPOT - 6.5;   // where the stack stands, in front of the post
+const UP_S = 0.35, DROP_S = 0.7, DOWN_S = 1.05;   // tube up, stack down onto the base, tube down
+const COOLDOWN_S = 1.0;                            // after one is taken, before the next goes in
+const SCALE = 0.8;                                 // a bit smaller than life so they don't fill the view
 
 export class HumanPlayers {
-	constructor(scene, toast) {
-		this.toast = toast;
+	constructor(scene, field, toast) {
+		this.field = field; this.toast = toast;
 		this.t = 0; this.load = 'cupOwn'; this.loader = 'both';
-		const skin = new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.8 });
-		const pants = new THREE.MeshStandardMaterial({ color: 0x23262d, roughness: 0.9 });
-		this.people = [];
-		for (const s of [-1, 1]) for (const sy of [-1, 1]) {
-			const shirt = new THREE.MeshStandardMaterial({ color: s < 0 ? 0xd62828 : 0x1e6fd9, roughness: 0.8 });
+		this.people = field.loaders.map((L) => {
+			const shirt = new THREE.MeshStandardMaterial({ color: COLORS[L.alliance], roughness: 0.8, transparent: true });
+			const pants = new THREE.MeshStandardMaterial({ color: 0x23262d, roughness: 0.9, transparent: true });
+			const skin = new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.8, transparent: true });
 			const g = new THREE.Group();
 			const part = (geo, m, x, y, z, parent = g) => {
 				const o = new THREE.Mesh(geo, m);
-				o.position.set(x * IN, y * IN, z * IN); o.castShadow = true; parent.add(o); return o;
+				o.position.set(x * IN, y * IN, z * IN); parent.add(o); return o;
 			};
 			const box = (w, h, d) => new THREE.BoxGeometry(w * IN, h * IN, d * IN);
-			for (const z of [-3.5, 3.5]) part(box(5, 31, 6), pants, 0, 15.5, z);          // legs
-			part(box(8, 22, 16), shirt, 0, 42, 0);                                         // torso
-			part(new THREE.SphereGeometry(5.2 * IN, 16, 12), skin, 0, 59, 0);              // head
-			part(box(5.5, 24, 5), shirt, 0, 42, -10.5);                                    // left arm
-			const arm = new THREE.Group();                                                 // right arm, pivots at the shoulder
-			arm.position.set(0, 52 * IN, 10.5 * IN);
-			part(box(5, 25, 5), shirt, 0, -12.5, 0, arm);
-			part(new THREE.SphereGeometry(2.7 * IN, 10, 8), skin, 0, -26, 0, arm);          // hand
+			for (const z of [-3, 3]) part(box(4.5, 31, 5), pants, 0, 15.5, z);            // legs
+			part(box(7, 21, 14), shirt, 0, 41.5, 0);                                     // torso
+			part(new THREE.SphereGeometry(4.6 * IN, 16, 12), skin, 0, 57, 0);              // head
+			part(box(4.5, 22, 4.5), shirt, 0, 41, -9.5);                                  // left arm
+			const arm = new THREE.Group();                                               // right arm, pivots at the shoulder
+			arm.position.set(0, 51 * IN, 9.5 * IN);
+			part(box(4.5, 23, 4.5), shirt, 0, -11.5, 0, arm);
+			part(new THREE.SphereGeometry(2.4 * IN, 10, 8), skin, 0, -24, 0, arm);        // hand
 			g.add(arm);
-			// Faces the field; world +x is field +fx.
-			g.position.copy(W(s * 80, sy * SPOT, 0));
-			g.rotation.y = s > 0 ? Math.PI : 0;
+			// Glowing spot on the floor under our own human players.
+			const ring = new THREE.Mesh(new THREE.RingGeometry(9 * IN, 12 * IN, 32), new THREE.MeshBasicMaterial({ color: COLORS[L.alliance], transparent: true, opacity: 0.7, depthWrite: false }));
+			ring.rotation.x = -Math.PI / 2; ring.position.y = 0.01;
+			g.add(ring);
+			// Behind the wall at the tube, facing the field (world +x is field +fx); right hand toward the tube.
+			g.position.copy(W(L.fx - L.n * 13, L.fy + Math.sign(L.fy) * 4, 0));
+			g.rotation.y = L.n > 0 ? 0 : Math.PI;
+			g.scale.setScalar(SCALE);
 			scene.add(g);
-			this.people.push({ s, sy, g, arm, swing: -1 });
-		}
-	}
-
-	spot(p) { return { fx: p.s * LOAD, fy: p.sy * LOAD }; }
-
-	// A piece still standing at this Loader's spot?
-	stocked(p, field) {
-		const sp = this.spot(p);
-		return [...field.pins, ...field.cups].some((o) => {
-			if (o.held) return false;
-			const f = toField(o.body.translation());
-			return Math.hypot(f.fx - sp.fx, f.fy - sp.fy) < 3.5 && f.h < 12;
+			return { L, s: Math.sign(L.fx), sy: Math.sign(L.fy), g, arm, ring, mats: [shirt, pants, skin], phase: -1, readyAt: 0 };
 		});
-	}
-
-	// Room to put a stack down: nothing there, and the robot isn't parked on the spot (unless it's
-	// sitting with its claw mouth right over it, then it goes straight between the rollers).
-	clear(p, robot) {
-		if (this.stocked(p, robot.field)) return false;
-		const sp = this.spot(p), l = robot.toLocal(W(sp.fx, sp.fy, 0));
-		const onRobot = Math.abs(l.x) < CFG.length / 2 + 1.8 && Math.abs(l.z) < CFG.width / 2 + 1.8;
-		const inMouth = !robot.claw && l.x < CFG.clawX + 1 && Math.abs(l.z) < 1.5;
-		return !onRobot || inMouth;
 	}
 
 	// Loaders this human player uses. Red stands at -fx looking +fx (left = +fy); blue the other way.
@@ -75,38 +55,65 @@ export class HumanPlayers {
 		return this.loader === 'left' ? left : !left;
 	}
 
-	place(p, robot) {
-		const sp = this.spot(p), f = robot.field;
-		const top = this.load.endsWith('Yellow') ? 'yellow' : robot.alliance;
-		if (this.load.startsWith('cup')) {
-			f.makeCup(W(sp.fx, sp.fy, CUP_H / 2 + 0.02), false);   // opaque half down, like the photos
-			f.makePin(top, 'yellow', W(sp.fx, sp.fy, CUP_H - PIN_COLLAR + 0.06 + PIN_H / 2));
-		} else f.makePin(top, 'yellow', W(sp.fx, sp.fy, PIN_H / 2 + 0.02));
+	// The stack still sitting in the tube (not taken, not cleared by a field reset)?
+	stocked(L) {
+		const f = this.field;
+		return !!L.stack && L.stack.every((o) => o.held === 'loader' && (f.pins.includes(o) || f.cups.includes(o)));
+	}
+
+	// Make the stack (held by the loader: no contacts, moved by hand) standing `above` the base.
+	makeStack(L, alliance, above) {
+		const f = this.field, top = this.load.endsWith('Yellow') ? 'yellow' : alliance, b = LOADER.base + above;
+		const pieces = this.load.startsWith('cup')
+			? [f.makeCup(W(L.px, L.fy, b + CUP_H / 2), false), f.makePin(top, 'yellow', W(L.px, L.fy, b + CUP_H - PIN_COLLAR + 0.06 + PIN_H / 2))]
+			: [f.makePin(top, 'yellow', W(L.px, L.fy, b + PIN_H / 2))];
+		for (const o of pieces) {
+			o.held = 'loader';
+			o.loadY = o.body.translation().y / IN - b;   // height above the base
+			for (let i = 0; i < o.body.numColliders(); i++) o.body.collider(i).setCollisionGroups(0);
+			o.body.setBodyType(f.R.RigidBodyType.KinematicPositionBased, true);
+		}
+		return pieces;
 	}
 
 	step(dt, robot, live) {
 		this.t += dt;
-		const s = robot.alliance === 'red' ? -1 : 1;
+		const s = robot.alliance === 'red' ? -1 : 1, ease = (x) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, x)));
+		this.field.setMine((L) => this.people.some((p) => p.L === L && this.uses(p, s)));
 		for (const p of this.people) {
-			if (p.swing >= 0) {
-				p.swing += dt;
-				if (!p.placed && p.swing >= HAND_S) { p.placed = true; if (this.clear(p, robot)) this.place(p, robot); p.readyAt = this.t + COOLDOWN_S; }
-				p.arm.rotation.z = 1.25 * Math.sin(Math.PI * Math.min(1, p.swing / SWING_S));
-				if (p.swing >= SWING_S) p.swing = -1;
+			const L = p.L, active = this.uses(p, s);
+			// Ours in full colour on a glowing spot; the others faded.
+			for (const m of p.mats) m.opacity = active ? 0.85 : 0.3;
+			p.ring.visible = active;
+			if (!this.stocked(L)) { L.ready = false; if (L.stack && L.stack.some((o) => o.held === 'loader')) L.stack = null; }
+			if (p.phase >= 0) {
+				const t = (p.phase += dt);
+				L.slideY = LOADER.slide * (t < UP_S ? ease(t / UP_S) : t < DROP_S ? 1 : 1 - ease((t - DROP_S) / (DOWN_S - DROP_S)));
+				p.arm.rotation.z = 1.3 * Math.min(1, t / 0.25) * (t > DOWN_S - 0.2 ? (DOWN_S - t) / 0.2 : 1);
+				if (t >= UP_S && !L.stack) L.stack = this.makeStack(L, robot.alliance, LOADER.slide);
+				if (L.stack && this.stocked(L)) {
+					const above = LOADER.slide * (1 - ease((t - UP_S) / (DROP_S - UP_S)));
+					for (const o of L.stack) o.body.setTranslation(W(L.px, L.fy, LOADER.base + above + o.loadY), true);
+				}
+				if (t >= DOWN_S) { p.phase = -1; L.slideY = 0; p.arm.rotation.z = 0; L.ready = this.stocked(L); }
 				continue;
 			}
-			p.arm.rotation.z = 0;
-			if (!this.uses(p, s) || !live || this.t < (p.readyAt || 0)) continue;
-			if (this.stocked(p, robot.field)) { p.readyAt = this.t + COOLDOWN_S; continue; }   // wait a moment after it's taken
-			if (this.clear(p, robot)) { p.swing = 0; p.placed = false; }
+			L.slideY = 0; p.arm.rotation.z = 0;
+			if (!active) {   // not ours (any more): take back anything left in the tube
+				if (L.stack) { for (const o of L.stack) if (o.held === 'loader') this.field.removePiece(o); L.stack = null; L.ready = false; }
+				continue;
+			}
+			if (this.stocked(L)) { L.ready = true; p.readyAt = this.t + COOLDOWN_S; continue; }
+			if (live && this.t >= p.readyAt) { p.phase = 0; L.stack = null; }
 		}
 	}
 
-	// For the HUD: near one of our Loaders, is a stack waiting?
+	// For the HUD: near one of our Loaders, is a stack waiting, and is the lift at the right height?
 	status(robot) {
-		const s = robot.alliance === 'red' ? -1 : 1, f = toField(robot.pos());
-		const p = this.people.find((q) => this.uses(q, s) && Math.hypot(f.fx - q.s * LOAD, f.fy - q.sy * LOAD) < 26);
-		if (!p) return '';
-		return this.stocked(p, robot.field) ? 'Loader: ready' : 'Loader: refilling';
+		const r = robot.pos(), L = this.field.loaders.find((q) => q.mine && Math.hypot(r.x / IN - q.px, -r.z / IN - q.fy) < 30);
+		if (!L) return '';
+		if (!L.ready) return 'Loader: refilling';
+		const e = robot.liftIn() - LOADER.base;
+		return `Loader: ready · ${e < -3 ? `lift up to ${LOADER.base}"` : e > 1.5 ? `lift down to ${LOADER.base}"` : 'lift OK, R1 + back in straight'}`;
 	}
 }
