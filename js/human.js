@@ -1,21 +1,21 @@
-// Human players standing behind the wall at each corner Loader (Override <SG> match loads: Drive
-// Team Members put Pins in through the top/back of their alliance's Loader, driver period only).
-// Ours drops two Pins at a time on the floor in front of the robot's intake, by themselves whenever
-// the robot sits at its Loader with empty hands. The robot then intakes them itself.
+// Human players standing behind the wall at each corner Loader (Override: Drive Team Members put
+// match loads in through their alliance's Loaders, driver period only). Ours keep a cup with a pin
+// in it standing on the floor in front of each of our Loaders: when the spot is empty they put a
+// new stack there. The robot drives claw first into it and the flex-wheel claw takes the stack.
 import * as THREE from 'three';
-import { IN, W, toField, PIN_R } from './field.js';
+import { IN, W, toField, CUP_H, PIN_H, PIN_COLLAR } from './field.js';
 import { CFG } from './robot.js';
 
-const REACH = 20;          // robot centre within this many inches of the Loader post
-const HAND_S = 0.35;       // arm swing before the pins arrive
+const HAND_S = 0.35;       // arm swing before the stack is down
 const SWING_S = 0.8;
-const COOLDOWN_S = 1.5;
+const COOLDOWN_S = 1.5;    // after one is taken, before the next goes down
 const SPOT = 69;           // Loader post position (field inches, |fx| and |fy|)
+const LOAD = SPOT - 6.5;   // where the stack stands, in front of the post
 
 export class HumanPlayers {
 	constructor(scene, toast) {
 		this.toast = toast;
-		this.t = 0; this.job = null; this.readyAt = 0;
+		this.t = 0;
 		const skin = new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.8 });
 		const pants = new THREE.MeshStandardMaterial({ color: 0x23262d, roughness: 0.9 });
 		this.people = [];
@@ -44,73 +44,57 @@ export class HumanPlayers {
 		}
 	}
 
-	// The alliance's Loader nearest the robot, if it's close enough.
-	near(robot) {
-		const s = robot.alliance === 'red' ? -1 : 1, f = toField(robot.pos());
-		let best = null, bd = REACH;
-		for (const p of this.people) {
-			if (p.s !== s) continue;
-			const d = Math.hypot(f.fx - s * SPOT, f.fy - p.sy * SPOT);
-			if (d < bd) { bd = d; best = p; }
-		}
-		return best;
-	}
+	spot(p) { return { fx: p.s * LOAD, fy: p.sy * LOAD }; }
 
-	// Starts a load when the robot is stopped at its Loader with empty hands, in driver period, and
-	// there's nothing left on the floor in front of it from the last load.
-	auto(robot, live) {
-		if (this.job || !live || this.t < this.readyAt || robot.hopper || robot.claw) return;
-		const v = robot.body.linvel();
-		if (Math.hypot(v.x, v.z) > 0.35) return;   // still driving in
-		const p = this.near(robot);
-		if (!p || this.loose(robot)) return;
-		this.job = { robot, p, t: 0, loaded: false };
-		p.swing = 0;
-	}
-
-	// Loose pins sitting by the robot's intake.
-	loose(robot) {
-		return robot.field.pins.some((pin) => {
-			if (pin.held) return false;
-			const l = robot.toLocal(new THREE.Vector3().copy(pin.body.translation()));
-			return l.x > CFG.length / 2 - 4 && l.x < CFG.length / 2 + 8 && Math.abs(l.z) < 8 && l.y < 6;
+	// A piece still standing at this Loader's spot?
+	stocked(p, field) {
+		const sp = this.spot(p);
+		return [...field.pins, ...field.cups].some((o) => {
+			if (o.held) return false;
+			const f = toField(o.body.translation());
+			return Math.hypot(f.fx - sp.fx, f.fy - sp.fy) < 3.5 && f.h < 12;
 		});
 	}
 
-	// Two pins dropped on the floor right in front of the intake, side by side, pointing at it.
-	load(robot) {
-		const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(robot.quat());
-		const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), fwd);
-		for (const z of [-2, 2]) {
-			const at = robot.toWorld(CFG.length / 2 + 2.5, PIN_R + 0.2, z);
-			robot.field.makePin(robot.alliance, 'yellow', at, { x: q.x, y: q.y, z: q.z, w: q.w });
-		}
-		this.toast('HUMAN LOAD: 2 pins at the intake');
+	// Room to put a stack down: nothing there, and the robot isn't parked on the spot (unless it's
+	// sitting with its claw mouth right over it, then it goes straight between the rollers).
+	clear(p, robot) {
+		if (this.stocked(p, robot.field)) return false;
+		const sp = this.spot(p), l = robot.toLocal(W(sp.fx, sp.fy, 0));
+		const onRobot = Math.abs(l.x) < CFG.length / 2 + 1.8 && Math.abs(l.z) < CFG.width / 2 + 1.8;
+		const inMouth = !robot.claw && l.x < CFG.clawX + 1 && Math.abs(l.z) < 1.5;
+		return !onRobot || inMouth;
+	}
+
+	place(p, robot) {
+		const sp = this.spot(p);
+		robot.field.makeCup(W(sp.fx, sp.fy, CUP_H / 2 + 0.02), false);   // opaque half down, like the photos
+		robot.field.makePin(robot.alliance, 'yellow', W(sp.fx, sp.fy, CUP_H - PIN_COLLAR + 0.06 + PIN_H / 2));
 	}
 
 	step(dt, robot, live) {
 		this.t += dt;
-		this.auto(robot, live);
+		const s = robot.alliance === 'red' ? -1 : 1;
 		for (const p of this.people) {
-			if (p.swing < 0) { p.arm.rotation.z = 0; continue; }
-			p.swing += dt;
-			p.arm.rotation.z = 1.25 * Math.sin(Math.PI * Math.min(1, p.swing / SWING_S));
-			if (p.swing >= SWING_S) p.swing = -1;
+			if (p.swing >= 0) {
+				p.swing += dt;
+				if (!p.placed && p.swing >= HAND_S) { p.placed = true; if (this.clear(p, robot)) this.place(p, robot); p.readyAt = this.t + COOLDOWN_S; }
+				p.arm.rotation.z = 1.25 * Math.sin(Math.PI * Math.min(1, p.swing / SWING_S));
+				if (p.swing >= SWING_S) p.swing = -1;
+				continue;
+			}
+			p.arm.rotation.z = 0;
+			if (p.s !== s || !live || this.t < (p.readyAt || 0)) continue;
+			if (this.stocked(p, robot.field)) { p.readyAt = this.t + COOLDOWN_S; continue; }   // wait a moment after it's taken
+			if (this.clear(p, robot)) { p.swing = 0; p.placed = false; }
 		}
-		const j = this.job;
-		if (!j) return;
-		j.t += dt;
-		if (!j.loaded && j.t >= HAND_S) {
-			j.loaded = true;
-			if (this.near(j.robot) === j.p) this.load(j.robot);
-			this.readyAt = this.t + COOLDOWN_S;
-		}
-		if (j.t >= SWING_S) this.job = null;
 	}
 
-	// For the HUD.
+	// For the HUD: near one of our Loaders, is a stack waiting?
 	status(robot) {
-		if (!this.near(robot)) return '';
-		return this.t < this.readyAt ? 'Loader: reloading' : 'Loader: ready';
+		const s = robot.alliance === 'red' ? -1 : 1, f = toField(robot.pos());
+		const p = this.people.find((q) => q.s === s && Math.hypot(f.fx - q.s * LOAD, f.fy - q.sy * LOAD) < 26);
+		if (!p) return '';
+		return this.stocked(p, robot.field) ? 'Loader: stack ready' : 'Loader: refilling';
 	}
 }

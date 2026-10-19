@@ -1,11 +1,13 @@
 // Port of src/auton_cmds.cpp. Your run_routine() code runs almost unchanged: blocking
 // commands become generator calls that advance one physics step (1/120 s) per yield.
+// The robot has no claw flip or intake any more (10/19): claw_in / claw_out / claw_up and intake()
+// from older routines still run but do nothing.
 import { CFG } from './robot.js';
 import { toField } from './field.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const BLOCKING = ['move', 'turn_to', 'turn', 'drive_time', 'wait', 'lift_wait', 'claw_in', 'claw_out', 'claw_up', 'claw_drop', 'score', 'claw_drop_up',
-	'drive_to', 'back_to', 'face', 'face_heading', 'drive_to_pose', 'back_to_pose'];
+	'drive_to', 'back_to', 'back_dist', 'back_past', 'lift_secs', 'face', 'face_heading', 'drive_to_pose', 'back_to_pose'];
 
 // C++ routine text -> generator function source.
 export function translate(src) {
@@ -15,6 +17,7 @@ export function translate(src) {
 	code = code
 		.replace(/\((int|float|double)\)\s*/g, '')
 		.replace(/(\d+\.\d*|\.\d+|\d+)f\b/g, '$1')
+		.replace(/std::fabs\b/g, 'Math.abs').replace(/std::(\w+)/g, 'Math.$1')
 		.replace(/\b(const\s+)?(int|float|double|bool|auto)\s+(?=[A-Za-z_])/g, 'let ')
 		.replace(new RegExp(`\\b(${BLOCKING.join('|')})\\s*\\(`, 'g'), 'yield* $1(');
 	return code;
@@ -103,27 +106,20 @@ export function makeAuton(robot, sel /* { side: 'left'|'right', color: 'red'|'bl
 		const t0 = now();
 		while (!s.stopped && Math.abs(robot.liftDeg - s.liftTarget) > 20 && (now() - t0) * 1000 < timeout) yield;
 	}
-	function* clawTo(deg, vel, timeout, tol = 30) {
-		robot.clawTarget = deg; robot.clawVel = vel;
-		const t0 = now();
-		while (!s.stopped && Math.abs(robot.clawDeg - deg) > tol && (now() - t0) * 1000 < timeout) yield;
+	// Old claw-flip commands: no flip motor on the robot now.
+	function* claw_in() { status('claw_in (no claw flip: skipped)'); }
+	function* claw_out() { status('claw_out (no claw flip: skipped)'); }
+	function* claw_up() { status('claw_up (no claw flip: skipped)'); }
+	const claw_out_start = () => status('claw_out_start (no claw flip: skipped)');
+	const claw_up_start = () => status('claw_up_start (no claw flip: skipped)');
+	function* claw_drop_up(speed = 1000, ms = 0) { yield* claw_drop(speed, ms); }
+	// lift_secs: run the cascade up (like L1) or down (like L2) for ms, then stop.
+	function* lift_secs(ms, up) {
+		status(`lift_secs ${ms} ${up ? 'up' : 'down'}`);
+		robot.liftMode = 'volt'; robot.liftCmd = up ? 127 : -85;
+		yield* wait(ms);
+		robot.liftCmd = 0;
 	}
-	function* claw_in() { status('claw_in'); robot.clawTurnHorizontal = false; yield* clawTo(CFG.CLAW_TURN_VERTICAL_DEG, CFG.CLAW_TURN_DOWN_VELOCITY, 2000); }
-	function* claw_out() { status('claw_out'); robot.clawTurnHorizontal = true; yield* clawTo(CFG.CLAW_TURN_HORIZONTAL_DEG, CFG.CLAW_TURN_VELOCITY, 200); }   // waits at most 200 ms (10/15)
-	// Start the flip and keep going (no wait), so it flips while the robot drives.
-	const claw_out_start = () => { status('claw_out_start'); robot.clawTurnHorizontal = true; robot.clawTarget = CFG.CLAW_TURN_HORIZONTAL_DEG; robot.clawVel = CFG.CLAW_TURN_VELOCITY; };
-	const claw_up_start = () => { status('claw_up_start'); robot.clawTurnHorizontal = true; robot.clawTarget = CFG.CLAW_TURN_LIFT_DEG; robot.clawVel = CFG.CLAW_TURN_VELOCITY; };
-	// Drop the pin and lift the claw slightly up at the same time; waits for a started flip first.
-	function* claw_drop_up(speed = 1000, ms = 0) {
-		status('claw_drop_up');
-		if (speed === 1000) speed = CFG.CLAW_DROP_SPEED;
-		if (ms <= 0) ms = CFG.CLAW_DROP_MS;
-		yield* clawTo(robot.clawTarget, robot.clawVel, 1000);
-		if (s.stopped) return;
-		robot.clawSpin = speed; robot.clawTurnHorizontal = true; robot.clawTarget = CFG.CLAW_TURN_LIFT_DEG; robot.clawVel = CFG.CLAW_TURN_VELOCITY;
-		yield* wait(ms); robot.clawSpin = 0;
-	}
-	function* claw_up() { status('claw_up'); if (s.stopped) return; robot.clawTurnHorizontal = true; yield* clawTo(CFG.CLAW_TURN_LIFT_DEG, CFG.CLAW_TURN_VELOCITY, 1500); }
 	function* claw_drop(speed = 1000, ms = 0) {
 		status('claw_drop');
 		if (speed === 1000) speed = CFG.CLAW_DROP_SPEED;
@@ -174,6 +170,10 @@ export function makeAuton(robot, sel /* { side: 'left'|'right', color: 'red'|'bl
 	const set_pose = (x, y, h) => { status(`set_pose ${x} ${y} ${h}`); setFrame(x, y, h); };
 	function* drive_to(x, y, speed = 100, timeout = 3000) { status(`drive_to ${x} ${y}`); yield* chase(x, y, true, speed, timeout); }
 	function* back_to(x, y, speed = 100, timeout = 3000) { status(`back_to ${x} ${y}`); yield* chase(x, y, false, speed, timeout); }
+	// back_dist: dead-straight back `inches` along the heading it faces now, IMU-held.
+	function* back_dist(inches, speed = 100, timeout = 3000) { status(`back_dist ${inches}`); s.goalHeading = robot.imuDeg; yield* move(-inches, speed, -1, -1, timeout); }
+	// back_past: like back_to but stops ~2" early, still moving (no settle).
+	function* back_past(x, y, speed = 100, timeout = 3000) { status(`back_past ${x} ${y}`); yield* chase(x, y, false, speed, timeout, null, 2); }
 	function* face(x, y, speed = 100, timeout = 1500) { status(`face ${x} ${y}`); yield* faceDeg(bearing(pose(), x, y), speed, timeout); }
 	function* face_heading(h, speed = 100, timeout = 1500) { status(`face_heading ${h}`); yield* faceDeg(h, speed, timeout); }
 	function* toPose(x, y, h, fwd, speed, timeout) {
@@ -186,17 +186,17 @@ export function makeAuton(robot, sel /* { side: 'left'|'right', color: 'red'|'bl
 	function* drive_to_pose(x, y, h, speed = 100, timeout = 4000) { status(`drive_to_pose ${x} ${y} ${h}`); yield* toPose(x, y, h, true, speed, timeout); }
 	function* back_to_pose(x, y, h, speed = 100, timeout = 4000) { status(`back_to_pose ${x} ${y} ${h}`); yield* toPose(x, y, h, false, speed, timeout); }
 
-	function* score() { yield* lift_goal_wait(); if (s.stopped) return; yield* claw_out(); if (s.stopped) return; yield* claw_drop(); if (s.stopped) return; yield* claw_up(); }
+	function* score() { yield* lift_goal_wait(); if (s.stopped) return; yield* claw_drop(); }
 	function* lift_goal_wait() { api.lift_goal(); yield* lift_wait(); }
 
 	const api = {
 		move, turn, turn_to, drive_time, wait, lift_wait, claw_in, claw_out, claw_up, claw_drop, score, claw_out_start, claw_up_start, claw_drop_up,
-		set_pose, drive_to, back_to, face, face_heading, drive_to_pose, back_to_pose,
+		set_pose, drive_to, back_to, back_dist, back_past, lift_secs, face, face_heading, drive_to_pose, back_to_pose,
 		move_pid: (p, d) => { s.moveKp = p; s.moveKd = d; },
 		turn_pid: (p, d) => { s.turnKp = p; s.turnKd = d; },
 		lift_goal: () => { status('lift_goal'); liftTo(CFG.LIFT_ALLIANCE_GOAL_DEG); },
 		lift_down: () => { status('lift_down'); liftTo(0); },
-		intake: (v) => { robot.intakeCmd = v; },
+		intake: () => status('intake (no intake: skipped)'),
 		spin_claw: (v) => { robot.clawSpin = v; },
 		on_right: () => sel.side === 'right', on_left: () => sel.side !== 'right',
 		is_red: () => sel.color === 'red', is_blue: () => sel.color !== 'red',
@@ -215,9 +215,8 @@ export function makeAuton(robot, sel /* { side: 'left'|'right', color: 'red'|'bl
 		// autonomous() epilogue: stop drive + mech_stop_all().
 		finish() {
 			stop();
-			robot.intakeCmd = 0; robot.clawSpin = 0;
+			robot.clawSpin = 0;
 			robot.liftMode = 'volt'; robot.liftCmd = 0;
-			robot.clawTarget = robot.clawDeg;
 		},
 	};
 }

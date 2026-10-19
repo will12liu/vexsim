@@ -23,9 +23,9 @@ const dz = (a = 0) => (Math.abs(a) < DEAD ? 0 : (Math.sign(a) * (Math.abs(a) - D
 const SETUP_STEPS = [
 	['ly', 'Push the LEFT stick UP (drive)'], ['rx', 'Push the RIGHT stick RIGHT (turn)'],
 	['L1', 'Press what you want as L1 (lift up)'], ['L2', 'Press L2 (lift down)'],
-	['R1', 'Press R1 (intake)'], ['R2', 'Press R2 (reverse intake + claw)'],
-	['A', 'Press A (claw spin in / drop)'], ['B', 'Press B (claw flip)'], ['X', 'Press X'], ['Y', 'Press Y (claw spin out)'],
-	['Up', 'Press D-pad UP (invert drive)'], ['Down', 'Press D-pad DOWN (run auton)'], ['Left', 'Press D-pad LEFT'], ['Right', 'Press D-pad RIGHT'],
+	['R1', 'Press R1 (claw grab spin)'], ['R2', 'Press R2 (claw release spin)'],
+	['A', 'Press A (claw release spin)'], ['B', 'Press B'], ['X', 'Press X'], ['Y', 'Press Y'],
+	['Up', 'Press D-pad UP (flip drive direction)'], ['Down', 'Press D-pad DOWN (run auton)'], ['Left', 'Press D-pad LEFT'], ['Right', 'Press D-pad RIGHT'],
 ];
 
 export class Input {

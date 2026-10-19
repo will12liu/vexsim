@@ -70,7 +70,7 @@ function toast(msg) {
 	t.textContent = msg; t.classList.add('show');
 	clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1200);
 }
-robot.flash = (msg) => { toast(msg); input.rumble(msg === 'normal' ? 80 : 300); };
+robot.flash = (msg) => { toast(msg); input.rumble(msg === 'CLAW FIRST' ? 300 : 80); };
 function log(msg) {
 	const el = $('log');
 	el.textContent = (msg + '\n' + el.textContent).slice(0, 2000);
@@ -196,14 +196,10 @@ function renderControls() {
 		['Turn', 'Right stick ↔', 'Right stick ↔', k('A', 'D')],
 		['Lift up (cascade)', k('L1'), k('LB'), k('R')],
 		['Lift down', k('L2'), k('LT'), k('G')],
-		['Intake cycle', k('R1'), k('RB'), k('E'), '1st: intake + claw grabs + cascade to intake height · 2nd: claw spin only · 3rd: off'],
-		['Reverse intake + claw spin', k('R2'), k('RT'), k('Q'), 'Toggle: spits out of the intake and lets go of the claw'],
-		['Claw flip', k('B'), k(x.B), k('B'), 'Like opcontrol.cpp: 1st highest (1350) · 2nd lift (450) · 3rd 90° (900, pin hangs over the goal) · 4th down'],
-		['Claw spin in / drop pin', k('A'), k(x.A), k('F'), 'Toggle. Spinning this way lets go of the pin'],
-		['Claw spin out', k('Y'), k(x.Y), k('Y'), 'Toggle'],
-		['Claw straight to 90° / back down', k('X'), k(x.X), k('X'), 'One press flips to 90°, again goes back to rest (skips the B positions)'],
-		['Invert drive (claw side = front)', k('↑'), 'D-pad ↑', k('↑'), 'Stick up drives claw first; turning unchanged. Shows INVERTED on the scoreboard'],
-			['Run auton (practice only)', k('↓'), 'D-pad ↓', k('↓')],
+		['Claw grab spin', k('R1'), k('RB'), k('E'), 'Toggle. Pulls a cup + pin stack in between the rollers; stops by itself once it\'s in (optical sensor). You don\'t need it: driving claw first into a stack grabs it too'],
+		['Claw release spin', k('R2') + ' / ' + k('A'), k('RT') + ' / ' + k(x.A), k('Q') + ' / ' + k('F'), 'Toggle. Lets go of the stack (onto a goal if it\'s over one). Lowering the lift onto a goal also lets go'],
+		['Flip drive direction', k('↑'), 'D-pad ↑', k('↑'), 'Starts claw first (stick up drives claw first), like opcontrol.cpp; turning unchanged'],
+		['Run auton (practice only)', k('↓'), 'D-pad ↓', k('↓')],
 		['E-stop a running auton test', k('L1') + '+' + k('R1'), k('LB') + '+' + k('RB'), k('R') + '+' + k('E')],
 	];
 	$('ctrlRows').innerHTML = rows.map(([a, v, xb, kb, note]) => `<tr><td>${a}${note ? `<small>${note}</small>` : ''}</td><td>${v}</td><td>${xb}</td><td>${kb}</td></tr>`).join('');
@@ -273,7 +269,7 @@ function steadyScore(sc) {
 }
 function updateHud(score) {
 	const label = { practice: 'PRACTICE', auton: 'AUTONOMOUS', driver: 'DRIVER', ended: 'MATCH OVER' }[sim.mode];
-	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '') + (robot.op.inverse < 0 ? ' · INVERTED' : '');
+	$('mode').textContent = label + (sim.auton && sim.mode === 'practice' ? ' · AUTON TEST' : '') + (robot.op.inverse > 0 ? ' · CLAW BACK' : '');
 	$('clock').textContent = sim.mode === 'practice' ? '--:--' : fmtClock(Math.max(0, sim.clock));
 	const s = sim.final || steadyScore(score);
 	$('red').textContent = s.red; $('blue').textContent = s.blue;
@@ -283,9 +279,9 @@ function updateHud(score) {
 		return `<span class="tg own-${own}" title="${name} Toggle: yellow pins in this quarter score for ${own === 'yellow' ? 'nobody' : own}">${name}<b>${own === 'yellow' ? '—' : own.toUpperCase()}</b></span>`;
 	}).join('');
 	$('detail').textContent = `Pins placed ${s.placedPins} · halves R${s.halves.red} B${s.halves.blue} Y→R${s.halves.yellowRed} Y→B${s.halves.yellowBlue} `;
-	const clawState = robot.clawDeg < 240 ? 'down' : robot.clawDeg < 680 ? 'lift (450)' : robot.clawDeg < 1120 ? '90°' : 'highest';
-	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${clawState} · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') + (robot.clawExtraPiece ? ' + ' + (robot.clawExtraPiece.kind === 'cup' ? 'cup' : 'pin') : '') : '—'} · Intake ${robot.hopper ? (robot.hopper.kind === 'cup' ? 'cup' : 'pin') : '—'} · ` +
-		`${humans.status(robot) ? humans.status(robot) + ' · ' : ''}Drive ${robot.op.inverse > 0 ? 'normal' : 'INVERTED'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
+	const spin = robot.clawSpin < -30 ? 'grab' : robot.clawSpin > 30 ? 'release' : 'off';
+	$('robot').textContent = `Lift ${robot.liftIn().toFixed(1)}" · Claw ${robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') + (robot.clawExtraPiece ? ' + ' + (robot.clawExtraPiece.kind === 'cup' ? 'cup' : 'pin') : '') : '—'} (spin ${spin}) · ` +
+		`${humans.status(robot) ? humans.status(robot) + ' · ' : ''}Drive ${robot.op.inverse < 0 ? 'claw first' : 'claw back'} · IMU ${robot.imuDeg.toFixed(1)}° · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	$('source').textContent = input.source;
 }
 
@@ -312,7 +308,7 @@ function physicsStep() {
 			sim.mode = 'driver'; sim.clock = DRIVER_S;
 		} else if (sim.clock <= 0 && sim.mode === 'driver') {
 			sim.mode = 'ended'; sim.endT = robot.t;
-			robot.leftCmd = robot.rightCmd = robot.intakeCmd = robot.clawSpin = robot.liftCmd = 0;
+			robot.leftCmd = robot.rightCmd = robot.clawSpin = robot.liftCmd = 0;
 			for (const a of ais) a.stop();
 		}
 	}

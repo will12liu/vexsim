@@ -2,10 +2,12 @@
 // physics as the Titanium robot, but has a simpler body and a small state machine that
 // picks up a pin, carries it to a goal and drops it on.
 import * as THREE from 'three';
-import { IN, W, toField, PIN_H, PIN_COLLAR, CUP_H, COLORS } from './field.js';
+import { IN, W, toField, PIN_H, PIN_COLLAR, CUP_H, COLORS, GROUP, groups, TOGGLE } from './field.js';
 import { Robot, CFG } from './robot.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const DEG = Math.PI / 180;
+const colsOf = (o) => (o.collider ? [o.collider, ...o.extra] : Array.from({ length: o.body.numColliders() }, (_, i) => o.body.collider(i)));
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const CLAW_REACH = 6.5 + CFG.clawArm;          // robot centre -> held pin with the claw at 90 deg
 const LIFT_FOR = { alliance: CFG.LIFT_ALLIANCE_GOAL_DEG, short: CFG.LIFT_SHORT_GOAL_DEG, tall: CFG.LIFT_TALL_GOAL_DEG };
@@ -45,8 +47,9 @@ function aiMesh() {
 	return { group: g, wheels, intake, stages: [{ g: top, frac: 1 }], clawPivot: pivot, bump };
 }
 
+// The AI robots keep the old Titanium design: a front intake that hands pieces up a ramp to a claw
+// that flips out the back (the Titanium robot itself now has the flex-wheel claw, robot.js).
 export class AIRobot extends Robot {
-	get noGuide() { return true; }   // the goal guide is our team's add-on, not the AI robots'
 	constructor(R, world, scene, field, alliance, label) {
 		super(R, world, scene, field);
 		this.alliance = alliance; this.label = label;
@@ -61,7 +64,147 @@ export class AIRobot extends Robot {
 		return m.group;
 	}
 
-	resetState() { super.resetState(); if (this.ai) Object.assign(this.ai, { state: 'fetch', target: null, t: 0, stuckT: 0, lastPos: null }); }
+	resetState() {
+		super.resetState();
+		this.clawDeg = 0; this.clawTarget = CFG.CLAW_TURN_VERTICAL_DEG; this.clawVel = CFG.CLAW_TURN_DOWN_VELOCITY;
+		this.intakeCmd = 0; this.clawTurnHorizontal = false;
+		if (this.ai) Object.assign(this.ai, { state: 'fetch', target: null, t: 0, stuckT: 0, lastPos: null });
+	}
+
+	// ---- Old claw + intake mechanics ----------------------------------------------------
+	build() {
+		super.build();
+		const { R, world } = this, hw = CFG.width / 2;
+		// End channel of the claw frame: with the claw horizontal it's what hits the Toggle. Checked
+		// geometrically (clawTouches) rather than as a collider: with the robot locked to the floor, a
+		// collider pressed by the turning Toggle makes the solver fling the robot.
+		const cw = hw - 1.6;
+		this.clawSeg = [[0, -CFG.clawArm, -cw - 0.5], [0, -CFG.clawArm, cw + 0.5]];
+		// Claw frame (side arms + end channel) as colliders that swing with the claw, so it can't pass
+		// through pins and cups. They skip the Toggle, walls and goals (see GROUP.fixed in field.js).
+		const arm = CFG.clawArm;
+		const clawBox = (hx, hy, hz) => world.createCollider(R.ColliderDesc.cuboid(hx * IN, hy * IN, hz * IN).setDensity(0).setFriction(0)
+			.setCollisionGroups(groups(GROUP.claw, 0xffff & ~(GROUP.toggle | GROUP.wall | GROUP.fixed))), this.body);
+		this.clawCols = [
+			{ c: clawBox(1.0, 0.5, (cw + 0.5 - 2.2) / 2), p: [0, -arm, -(cw + 0.5 + 2.2) / 2] },
+			{ c: clawBox(1.0, 0.5, (cw + 0.5 - 2.2) / 2), p: [0, -arm, (cw + 0.5 + 2.2) / 2] },
+			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, -cw] },
+			{ c: clawBox(0.5, arm / 2, 0.5), p: [0, -arm / 2, cw] },
+		];
+	}
+
+	clawArmAngle() { return this.clawDeg * CFG.clawDegPerMotorDeg * DEG; }   // 0 = hanging down, 90 = pointing back
+	// Held pin pose: lying flat with the claw down, hanging straight down at 90 deg.
+	clawPinLocal() {
+		const a = this.clawArmAngle();
+		const pivotY = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
+		const gx = -6.5 - CFG.clawArm * Math.sin(a), gy = pivotY - CFG.clawArm * Math.cos(a);
+		const off = PIN_H / 2 - 1, angle = Math.PI / 2 - a;
+		const pos = new THREE.Vector3(gx + Math.cos(a) * off, gy - Math.sin(a) * off, 0);
+		const lowest = pos.y - Math.abs(Math.cos(angle)) * (PIN_H / 2) - Math.abs(Math.sin(angle)) * 1.58;
+		if (lowest < 0.3) pos.y += 0.3 - lowest;
+		return { pos, angle };
+	}
+	// Which way round a piece goes in (the end that comes in first stays first).
+	decideFlip(o, angle) {
+		const def = new THREE.Vector3(0, 1, 0).applyQuaternion(this.quat().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), angle)));
+		const r = o.body.rotation(), act = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(r.x, r.y, r.z, r.w));
+		o.flipped = def.dot(act) < 0;
+	}
+	// Is the end channel of the claw frame touching this Toggle?
+	clawTouches(tg) {
+		const a = this.clawArmAngle(), ca = Math.cos(a), sa = Math.sin(a), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
+		const c = tg.body.translation(), [p0, p1] = this.clawSeg;
+		for (let i = 0; i <= 8; i++) {
+			const x = p0[0], y = p0[1], z = p0[2] + ((p1[2] - p0[2]) * i) / 8;
+			const d = this.toWorld(-6.5 + x * ca + y * sa, py - x * sa + y * ca, z).sub(new THREE.Vector3(c.x, c.y, c.z));
+			const along = d.dot(tg.axis);
+			if (Math.abs(along) < (TOGGLE.len / 2) * IN && d.addScaledVector(tg.axis, -along).length() < 1.9 * IN) return true;
+		}
+		return false;
+	}
+	// The claw frame against a Toggle or sticking out over a wall stops the robot going that way.
+	holdAtToggle() {
+		const [p0] = this.clawSeg, a = this.clawArmAngle(), ca = Math.cos(a), sa = Math.sin(a), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
+		for (const z of [p0[2], 0, -p0[2]]) {
+			const f = toField(this.toWorld(-6.5 + p0[0] * ca + p0[1] * sa, py - p0[0] * sa + p0[1] * ca, z));
+			if (f.h > 12.5) continue;
+			const v = this.body.linvel();
+			if (Math.abs(f.fx) > 71.4 && Math.sign(v.x) === Math.sign(f.fx)) this.body.setLinvel({ x: 0, y: 0, z: v.z }, true);
+			if (Math.abs(f.fy) > 71.4 && Math.sign(-v.z) === Math.sign(f.fy)) this.body.setLinvel({ x: this.body.linvel().x, y: 0, z: 0 }, true);
+		}
+		const tg = this.clawToggle;
+		if (!tg) { this.toggleHitV = 0; return; }
+		const v = this.body.linvel(), n = tg.nWorld, vn = v.x * n.x + v.z * n.z;
+		this.toggleHitV = Math.max(this.toggleHitV || 0, -vn);
+		if (vn < 0) this.body.setLinvel({ x: v.x - vn * n.x, y: 0, z: v.z - vn * n.z }, true);
+	}
+
+	stepMechanisms(dt) {
+		super.stepMechanisms(dt);
+		// The claw motor stalls with the frame pressed on a Toggle: it can't swing further that way.
+		this.clawToggle = this.field.toggles.find((tg) => this.clawTouches(tg)) || null;
+		const step = this.clawVel * 6 * dt, e = this.clawTarget - this.clawDeg;
+		const move = this.clawToggle && Math.sign(e) === this.clawDir ? 0 : clamp(e, -step, step);
+		if (move) this.clawDir = Math.sign(move);
+		this.clawDeg += move;
+		const a = this.clawArmAngle(), ca = Math.cos(a), sa = Math.sin(a), py = CFG.pinBottomAtHorizontal + PIN_H - 1 + this.liftIn();
+		const rq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -a);
+		for (const k of this.clawCols) {
+			const [x, y, z] = k.p;
+			k.c.setTranslationWrtParent({ x: (-6.5 + x * ca + y * sa) * IN, y: (py - x * sa + y * ca) * IN, z: z * IN });
+			k.c.setRotationWrtParent({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
+		}
+	}
+
+	stepPins(dt) {
+		for (const r of this.justReleased || []) if ((r.t -= dt) <= 0 && !r.pin.held && (this.field.pins.includes(r.pin) || this.field.cups.includes(r.pin))) for (const c of colsOf(r.pin)) c.setCollisionGroups(0xffffffff);
+		if (this.justReleased) this.justReleased = this.justReleased.filter((r) => r.t > 0);
+		// Intake: one piece at a time, only with the claw down.
+		if (this.intakeCmd > 30 && !this.hopper && !this.claw && this.clawDeg < 150) {
+			for (const pin of [...this.field.pins, ...this.field.cups]) {
+				if (pin.held) continue;
+				const f = toField(pin.body.translation());
+				if (this.field.goals.some((g) => Math.hypot(f.fx - g.fx, f.fy - g.fy) < 2.5 && f.h > g.base)) continue;   // seated on a post
+				const l = this.toLocal(new THREE.Vector3().copy(pin.body.translation()));
+				if (l.x > CFG.length / 2 - 3 && l.x < CFG.length / 2 + 4.5 && Math.abs(l.z) < 5 && l.y < 8) { this.decideFlip(pin, Math.PI / 2); this.attachPin(pin, 'hopper'); break; }
+			}
+		}
+		// Hand-off up the deflector to the claw: claw down, lift down, claw spinning in.
+		if (this.hopper && !this.claw && this.clawSpin < -30 && this.clawDeg < 150 && this.liftDeg < CFG.CASCADE_INTAKE_DEG + 60) {
+			this.transferT += dt;
+			if (this.transferT > 0.25) { const p = this.hopper; this.hopper = null; p.held = null; this.attachPin(p, 'claw'); this.transferT = 0; }
+		} else this.transferT = 0;
+		if (this.claw && this.clawSpin > 30) {
+			this.releaseT += dt;
+			if (this.releaseT > 0.12) { this.releaseClaw(true, true); this.releaseT = 0; }
+		} else this.releaseT = 0;
+		// Move held pieces.
+		const q = this.quat(), Z = new THREE.Vector3(0, 0, 1);
+		const pose = (pin, l, angle) => {
+			const rq = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(Z, angle));
+			pin.body.setNextKinematicTranslation(this.toWorld(l.x, l.y, l.z));
+			pin.body.setNextKinematicRotation({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
+		};
+		const flip = (o) => (o.flipped ? Math.PI : 0);
+		if (this.hopper) pose(this.hopper, new THREE.Vector3(2.5, 4.5, 0), Math.PI / 2 + flip(this.hopper));   // lying flat on the ramp
+		if (this.claw) {
+			const l = this.clawPinLocal(); l.angle += flip(this.claw); pose(this.claw, l.pos, l.angle);
+			const e = this.clawExtraPiece, rel = this.clawRel;
+			if (e && rel) {
+				const mq = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(Z, l.angle)), mp = this.toWorld(l.pos.x, l.pos.y, l.pos.z);
+				const p = rel.pos.clone().applyQuaternion(mq).add(mp), rq = mq.clone().multiply(rel.quat);
+				e.body.setNextKinematicTranslation(p);
+				e.body.setNextKinematicRotation({ x: rq.x, y: rq.y, z: rq.z, w: rq.w });
+			}
+		}
+	}
+
+	syncMesh(dt) {
+		super.syncMesh(dt);
+		this.clawPivot.rotation.z = -this.clawArmAngle();
+		for (const rr of this.intakeRollers) rr.rotation.z += (this.intakeCmd / 127) * 25 * dt;
+	}
 
 	fpos() { return toField(this.pos()); }
 	heading() { const f = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat()); return Math.atan2(-f.z, f.x); }

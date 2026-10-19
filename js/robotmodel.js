@@ -1,8 +1,9 @@
-// Visual model of the Titanium robot, from the team's photos: silver chain-driven base,
-// wide flex-wheel intake behind a blue bumper, nested blue C-channel cascade stages on both
-// sides that telescope with the lift, a top frame with the distance sensor, a big
-// rectangular braced claw frame at the back, and the Brain mounted low at the back.
-// Visual only (no physics). Robot-local inches: +x forward (intake), +y up, +z right.
+// Visual model of the Titanium robot, from the team's photos: silver chain-driven base (open
+// at the back), blue bumper on the front, nested blue C-channel cascade stages on both sides
+// that telescope with the lift, a top frame with the distance sensor, and (10/19) the flex-wheel
+// claw on the back: two stacks of grey flex wheels on vertical shafts hanging from the top stage,
+// that grip a cup + pin stack between them. Visual only (no physics).
+// Robot-local inches: +x = motor forward, +y up, +z right; the claw is at -x.
 import * as THREE from 'three';
 import { IN } from './field.js';
 
@@ -121,7 +122,7 @@ function motor(parent, x, y, z, rotY = 0) {
 export function buildRobotMesh(CFG) {
 	const L = CFG.length, Wd = CFG.width, H = CFG.height, hl = L / 2, hw = Wd / 2;
 	const root = new THREE.Group();
-	const out = { group: root, wheels: [], intakeRollers: [], clawRollers: [], pistons: [], stages: [], driveGears: [], liftGears: [], liftLeds: [] };
+	const out = { group: root, wheels: [], clawRollers: [], stages: [], driveGears: [], liftGears: [], liftLeds: [] };
 
 	// ---- Drive base: silver channels, 4 omnis with red gears, chain along each side -------
 	const track = CFG.trackWidth / 2;
@@ -141,25 +142,10 @@ export function buildRobotMesh(CFG) {
 		for (const dy of [-1.4, 1.4]) mesh(new THREE.BoxGeometry((L - 5) * IN, 0.14 * IN, 0.2 * IN), M.chain, root, 0, CFG.wheelDia / 2 + dy, s * (track + 0.75));
 		motor(root, 0, 2.1, s * (track - 2.6), 0);
 	}
-	channel(root, 'silver', [-hl + 0.5, 3.3, -hw + 0.4], [-hl + 0.5, 3.3, hw - 0.4], 1, [1, 0, 0]);
+	channel(root, 'silver', [hl - 0.5, 3.3, -hw + 0.4], [hl - 0.5, 3.3, hw - 0.4], 1, [1, 0, 0]);   // front crossbar (the back is open)
 
-	// ---- Front: blue 2" bumper + wide flex-wheel intake + deflector ramp -------------------
+	// ---- Front: blue 2" bumper ---------------------------------------------------------------
 	channel(root, 'blue', [hl + 0.3, 1.6, -hw], [hl + 0.3, 1.6, hw], 2, [1, 0, 0]);
-	for (const [x, y, n] of [[hl - 1.4, 2.4, 6], [hl - 3, 5.6, 4]]) {
-		const axle = new THREE.Group();
-		axle.position.set(x * IN, y * IN, 0);
-		rod(axle, M.steel, [0, 0, -hw + 0.8], [0, 0, hw - 0.8], 0.09);
-		for (let i = 0; i < n; i++) {
-			const z = -hw + 2.2 + (i * (Wd - 4.4)) / (n - 1);
-			mesh(new THREE.CylinderGeometry(1.0 * IN, 1.0 * IN, 1.0 * IN, 14), M.gray, axle, 0, 0, z).rotation.x = Math.PI / 2;
-		}
-		for (const z of [-hw + 1.1, hw - 1.1]) gear(axle, 0.95, 24, 0, 0, z);
-		root.add(axle);
-		out.intakeRollers.push(axle);
-	}
-	const ramp = mesh(new THREE.PlaneGeometry(9 * IN, (Wd - 4) * IN), M.poly, root, 1.5, 6.2, 0);
-	ramp.rotateX(-Math.PI / 2); ramp.rotateY(0.42);
-
 	// ---- Cascade lift: 4 nested 2" C-channel stages per side, telescoping -----------------
 	// Stage 0 is fixed; stage k rises k/3 of the lift travel; the claw rides on stage 3.
 	const cx = -2.5, h0 = 3.5, len = H - h0;
@@ -196,52 +182,39 @@ export function buildRobotMesh(CFG) {
 		out.liftLeds.push(led);
 	}
 
-	// ---- Brain + battery low at the back, screen tilted up --------------------------------
+	// ---- Brain + battery low at the front, screen tilted up -------------------------------
 	const brain = new THREE.Group();
-	brain.position.set((-hl - 0.4) * IN, 4.8 * IN, 0);
-	brain.rotation.z = -0.95;
+	brain.position.set((hl + 0.4) * IN, 4.8 * IN, 0);
+	brain.rotation.set(0, Math.PI, -0.95);
 	mesh(new THREE.BoxGeometry(0.9 * IN, 4.4 * IN, 5.8 * IN), M.black, brain);
 	mesh(new THREE.PlaneGeometry(3.4 * IN, 4.4 * IN), M.screen, brain, -0.46, 0.2, 0).rotation.y = -Math.PI / 2;
 	root.add(brain);
-	mesh(new THREE.BoxGeometry(5.2 * IN, 1.5 * IN, 2.3 * IN), M.black, root, -hl + 4, 4.2, -hw + 3.2);
+	mesh(new THREE.BoxGeometry(5.2 * IN, 1.5 * IN, 2.3 * IN), M.black, root, hl - 4.5, 4.2, -hw + 3.2);
 
-	// ---- Claw: big rectangular braced frame, pivots at the back of the top stage ----------
-	// 0 deg hangs straight down inside the robot; 90 deg sticks straight out the back.
-	const car = out.stages[3].g;
-	const pivot = new THREE.Group();
-	pivot.position.set(-6.5 * IN, (CFG.pinBottomAtHorizontal + 5.5) * IN, 0);   // same pivot height robot.js uses
-	car.add(pivot);
-	out.carriage = car;
-	out.clawPivot = pivot;
-	const arm = CFG.clawArm, cw = hw - 1.6;
-	rod(pivot, M.steel, [0, 0, -hw + 0.6], [0, 0, hw - 0.6], 0.1);
+	// ---- Claw: two stacks of flex wheels on vertical shafts, hanging from the ct stage --------
+	// A cup sits between the stacks (its pin on ct); the stacks spin opposite ways to pull it in
+	// (R1) or push it out (R2 / A). An optical sensor at the back of the mouth sees it.
+	const car = out.stages[3].g, X = CFG.clawX, wr = CFG.clawWheelR, zs = 1.575 + wr - 0.3, ct = 6.6;
+	channel(car, 'blue', [X, ct, -zs - 1.8], [X, ct, zs + 1.8], 2, [0, 1, 0]);                  // ct plate across the claw
+	channel(car, 'blue', [X + 1.9, 3.4, -zs - 1.3], [X + 1.9, 3.4, zs + 1.3], 1, [1, 0, 0]);       // back brace behind the cup
 	for (const s of [-1, 1]) {
-		channel(pivot, 'blue', [0, 0.5, s * cw], [0, -arm, s * cw], 1, [1, 0, 0]);
-		channel(pivot, 'blue', [0, -arm * 0.45, s * cw], [0, -arm, s * cw * 0.25], 1, [1, 0, 0]);   // diagonal brace
-		gear(pivot, 1.25, 36, 0, 0, s * (cw + 0.7));
+		channel(car, 'blue', [X, ct + 0.6, s * (zs + 1.3)], [cx + 1.5, ct + 0.6, s * (zs + 1.3)], 1, [0, 0, s]);   // arms back to the stage
+		channel(car, 'blue', [cx + 1.5, ct + 0.6, s * (zs + 1.3)], [cx + 1.5, H - 3, s * (zs + 1.3)], 1, [1, 0, 0]);
+		channel(car, 'blue', [X + 1.9, 3.4, s * (zs + 1.3)], [X + 1.9, ct, s * (zs + 1.3)], 1, [1, 0, 0]);
+		const shaft = new THREE.Group();
+		shaft.position.set(X * IN, 0, s * zs * IN);
+		rod(shaft, M.steel, [0, 0.5, 0], [0, ct + 1.2, 0], 0.09);
+		for (const y of [1.3, 3.1, 4.9]) {   // three grey flex wheels per stack, like the photos
+			mesh(new THREE.CylinderGeometry(wr * IN, wr * IN, 1.0 * IN, 16), M.gray, shaft, 0, y, 0);
+			mesh(new THREE.CylinderGeometry(0.45 * IN, 0.45 * IN, 1.05 * IN, 6), M.hub, shaft, 0, y, 0);
+		}
+		const g = gear(shaft, 0.8, 18, 0, ct + 0.9, 0);
+		g.rotation.x = Math.PI / 2;
+		car.add(shaft);
+		out.clawRollers.push({ g: shaft, dir: s });
 	}
-	channel(pivot, 'blue', [0, -arm, -cw - 0.5], [0, -arm, cw + 0.5], 2, [1, 0, 0]);
-	// Grip at the end of the frame: two small rollers either side of the pin.
-	for (const dx of [-1.1, 1.1]) {
-		const r = new THREE.Group();
-		r.position.set(dx * IN, (-arm - 0.3) * IN, 0);
-		mesh(new THREE.CylinderGeometry(0.55 * IN, 0.55 * IN, 2.2 * IN, 12), M.rubber, r).rotation.x = Math.PI / 2;
-		gear(r, 0.7, 18, 0, 0, 1.3);
-		pivot.add(r);
-		out.clawRollers.push(r);
-	}
-	// Piston on the claw frame (does nothing yet).
-	mesh(new THREE.CylinderGeometry(0.42 * IN, 0.42 * IN, 3.6 * IN, 14), M.steel, pivot, 0.8, -arm * 0.4, cw - 1.2);
-	const pr = mesh(new THREE.CylinderGeometry(0.12 * IN, 0.12 * IN, 2.6 * IN, 8), M.steel, pivot, 0.8, -arm * 0.4 - 2.6, cw - 1.2);
-	pr.userData.y0 = pr.position.y;
-	out.pistons.push(pr);
-	// Goal guide on the back: a channel out from the base, then a V of channel that the goal post
-	// slides into (CFG.guide; the colliders are in robot.js).
-	const gd = CFG.guide, gy = (gd.y0 + gd.y1) / 2, back = -hl;
-	channel(root, 'silver', [back, gy, 0], [gd.apexX, gy, 0], 1, [0, 1, 0]);
-	for (const s of [-1, 1]) {
-		const len = gd.armLen;
-		channel(root, 'silver', [gd.apexX, gy, 0], [gd.apexX - len * Math.SQRT1_2, gy, s * len * Math.SQRT1_2], 1, [0, 1, 0]);
-	}
+	motor(car, X + 0.6, ct + 1.7, 0, Math.PI / 2);                                                   // claw spin motor (port 15)
+	mesh(new THREE.BoxGeometry(0.6 * IN, 1.0 * IN, 1.0 * IN), M.black, car, X + 1.6, 2.6, 0);         // optical sensor (port 17)
+	mesh(new THREE.BoxGeometry(0.05 * IN, 0.3 * IN, 0.3 * IN), M.led, car, X + 1.28, 2.6, 0);
 	return out;
 }
