@@ -41,11 +41,11 @@ const GOALS = [
 
 // Loaders (Appendix A "Loader specifications"): a clear 3.74"-square tube hung on the inside of each
 // alliance-station wall near the corner, 23" tall, with a slot at the bottom (up to 11.85") open to the
-// field and both sides. Match loads stand on the tiles inside it, one nested on the next (gravity fed,
-// two cup + pin stacks fit). The human player drops them in through the top (<SG11>); a robot of
+// field and both sides. One match load at a time stands on the tiles inside it: the human player drops
+// the next one in through the top (<SG11>) only after the robot has taken the last one; a robot of
 // that alliance takes the bottom one out through the slot (the claw has to fit under the tube).
 // n = which way the slot faces (+1 = +fx).
-export const LOADER = { inner: 3.74, outer: 4.02, h: 23, slotTop: 11.85, off: 2.26, cap: 2, stackStep: 6.95 };
+export const LOADER = { inner: 3.74, outer: 4.02, h: 23, slotTop: 11.85, off: 2.26, cap: 1, stackStep: 6.95 };
 export const MATCH_LOADS = { cups: 10, pins: 10, yellow: 1 };   // per alliance: 10 Cups, 10 alliance/yellow Pins, 1 yellow/yellow
 const LOADERS = [
 	{ alliance: 'red', fx: -WALL, fy: 60.7, n: 1 }, { alliance: 'red', fx: -WALL, fy: -60.7, n: 1 },
