@@ -44,6 +44,8 @@ CFG.clawX = -CFG.length / 2 + CFG.clawIn;   // robot-local x of a held stack's c
 CFG.guide = { y0: 1.1, y1: 3.0, root: [CFG.clawX + 0.7, 2.2], tip: [-CFG.length / 2 - 0.35, 5.6], t: 0.5 };
 
 const DEG = Math.PI / 180;
+// Claw mode colours (light bar on the claw + HUD): R1 grab running, stopped (closed), R2 release running (open).
+export const CLAW_LIGHT = { GRAB: 0x22e05a, STOPPED: 0xf2f4f6, RELEASE: 0xff9a1a };
 const colsOf = (o) => (o.collider ? [o.collider, ...o.extra] : Array.from({ length: o.body.numColliders() }, (_, i) => o.body.collider(i)));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const upright = (o) => { const r = o.body.rotation(); return Math.abs(1 - 2 * (r.x * r.x + r.z * r.z)) > 0.85; };
@@ -588,6 +590,11 @@ export class Robot {
 		for (const led of P.liftLeds) led.material.color.setHex(Math.abs(lr) > 1 ? 0xff3322 : 0x331010);
 		for (const rr of P.clawRollers) rr.g.rotation.y += rr.dir * (this.clawSpin / 127) * 22 * dt;
 		for (const g of P.clawGears) g.g.rotation.y += g.dir * (this.clawSpin / 127) * 22 * dt;
+		if (P.clawLight) {   // running modes pulse so "on" reads at a glance
+			const pulse = 0.75 + 0.25 * Math.sin(performance.now() / 90);
+			P.clawLight.color.setHex(CLAW_LIGHT[this.clawMode] ?? CLAW_LIGHT.STOPPED);
+			if (this.clawMode !== 'STOPPED') P.clawLight.color.multiplyScalar(pulse);
+		}
 		P.setAlliance?.(this.alliance);
 	}
 

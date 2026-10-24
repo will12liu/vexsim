@@ -56,6 +56,13 @@ if (location.protocol === 'file:') location.replace('TitaniumSim.html');
   .muted { color: var(--muted); font-size: 12px; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; margin-left: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
   .dot.red { background: var(--red); } .dot.blue { background: var(--blue); } .dot.yellow { background: #f5c518; }
+  #clawState { bottom: 50px; left: 50%; transform: translateX(-50%); font: 700 13px/1 system-ui, sans-serif; letter-spacing: .04em; padding: 8px 14px; white-space: nowrap; border: 1px solid var(--line); }
+  #clawState::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; background: currentColor; }
+  #clawState[data-mode="grab"] { color: #22e05a; border-color: rgba(34,224,90,.55); }
+  #clawState[data-mode="release"] { color: #ff9a1a; border-color: rgba(255,154,26,.55); }
+  #clawState[data-mode="stopped"] { color: #f2f4f6; }
+  #clawState[data-mode="grab"]::before, #clawState[data-mode="release"]::before { animation: clawPulse .5s ease-in-out infinite alternate; }
+  @keyframes clawPulse { from { opacity: 1; } to { opacity: .35; } }
   #status { bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--muted); padding: 7px 14px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
   #auton { top: 12px; right: 12px; width: 380px; max-height: calc(100% - 24px); display: flex; flex-direction: column; }
   #auton summary { cursor: pointer; font-weight: 700; }
@@ -95,7 +102,7 @@ if (location.protocol === 'file:') location.replace('TitaniumSim.html');
   #menu .hint { margin-top: 18px; color: var(--muted); font-size: 12px; }
   #menu .hint a { color: var(--text); }
   #menu #appHint + .hint { margin-top: 6px; }
-  body.menu-open #board, body.menu-open #hud, body.menu-open #status, body.menu-open #auton, body.menu-open #btnHelp { display: none; }
+  body.menu-open #board, body.menu-open #hud, body.menu-open #status, body.menu-open #clawState, body.menu-open #auton, body.menu-open #btnHelp { display: none; }
   .tag { position: fixed; transform: translate(-50%, -100%); font: 700 11px system-ui; padding: 2px 7px; border-radius: 6px; pointer-events: none; white-space: nowrap; color: #fff; }
   .tag.red { background: rgba(214,40,40,.85); } .tag.blue { background: rgba(30,111,217,.85); }
   @media (max-width: 900px) { #auton { display: none; } #hud { top: auto; bottom: 56px; width: calc(100% - 24px); } #board .s { min-width: 60px; font-size: 26px; } }
@@ -125,6 +132,7 @@ if (location.protocol === 'file:') location.replace('TitaniumSim.html');
   <div class="row muted">Input: <span id="source"></span></div>
   <div class="row muted" id="detail"></div>
 </details></div>
+<div id="clawState" class="panel" data-mode="stopped" title="Claw mode, like the toggles in mechanisms.cpp: R1 = grab (spin in), R2 / A = release (spin out), press the running one again to stop">CLAW CLOSED · stopped</div>
 <div id="status" class="panel"><span id="robot"></span></div>
 <div id="auton" class="panel">
   <details><summary>Auton routine</summary>
@@ -148,7 +156,7 @@ void run_routine() {
   <h3>Simulator</h3>
   <table><tbody>
     <tr><td>Switch view (driver, like the field photo → driver standing → chase → orbit → top)</td><td><kbd>V</kbd></td></tr>
-    <tr><td>Look around (driver views): turn your head, e.g. to watch your human player at the Loader</td><td>Drag the mouse / a finger, or <kbd>J</kbd> <kbd>L</kbd> <kbd>I</kbd> <kbd>K</kbd></td></tr>
+    <tr><td>Driver views follow the robot by themselves (your eyes track it like at a match). To look somewhere else, e.g. at your human player at the Loader: drag; it goes back to following the robot 2.5 s after you let go</td><td>Drag the mouse / a finger, or <kbd>J</kbd> <kbd>L</kbd> <kbd>I</kbd> <kbd>K</kbd></td></tr>
     <tr><td>Walk along the alliance station (driver views)</td><td>Scroll / two-finger swipe, or <kbd>U</kbd> <kbd>O</kbd></td></tr>
     <tr><td>Look straight ahead again</td><td>Double-click or <kbd>H</kbd></td></tr>
     <tr><td>Start a match (15 s auton + 1:45 driver)</td><td><kbd>M</kbd></td></tr>

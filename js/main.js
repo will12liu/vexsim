@@ -155,7 +155,7 @@ function startGame(game) {
 	$('start').value = $('mStart').value;
 	$('alliance').value = $('start').value.startsWith('red') ? 'red' : 'blue';
 	if (game === 'free') { resetField(); practice(); } else startMatch();
-	toast({ free: 'FREE DRIVE', solo: 'SOLO MATCH', ai: '2v2 vs AI' }[game], 'Drag to look around · scroll to walk · double-click to look ahead');
+	toast({ free: 'FREE DRIVE', solo: 'SOLO MATCH', ai: '2v2 vs AI' }[game], 'The view follows your robot · drag to look elsewhere · scroll to walk');
 }
 function showMenu() { stopAuton(); sim.menu = true; $('menu').hidden = false; document.body.classList.add('menu-open'); $('mStart').value = $('start').value; menuSel = -1; markMenu(); }
 const modeBtns = [...document.querySelectorAll('.mode')];
@@ -201,13 +201,11 @@ const markSide = () => { $('sideNote').textContent = sideNote(); };
 $('side').onchange = markSide;
 const CAMS = ['driver', 'standing', 'chase', 'orbit', 'top'];
 let cam = 'driver';
-const look = new THREE.Vector3();
 function setCam(c) {
 	cam = c; controls.enabled = cam === 'orbit';
 	$('btnCam').textContent = 'View: ' + { driver: 'driver (field photo)', standing: 'driver standing', chase: 'chase', orbit: 'orbit', top: 'top' }[cam];
 	camera.fov = cam === "driver" ? 46 : cam === 'standing' ? 50 : 52; camera.updateProjectionMatrix();
 	if (cam === 'orbit') { controls.target.set(0, 0, 0); camera.position.copy(W(-120, -40, 90)); }
-	look.set(0, 0, 0);
 	resetHead();
 }
 // Your head in the driver views: turn it to look anywhere (the human player at the Loader, the far
@@ -215,8 +213,10 @@ function setCam(c) {
 // scroll walks, double-click resets. Keys: J L look left/right, I K up/down, U O walk, H reset.
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const head = { yaw: 0, pitch: 0, walk: 0, tYaw: 0, tPitch: 0, tWalk: 0 };
-const HEAD = { yaw: 2.1, up: 0.55, down: 0.6, walk: 48, perPx: 0.0045, keyRate: 1.6, walkRate: 40 };
-function resetHead() { head.tYaw = head.tPitch = head.tWalk = 0; }
+const HEAD = { holdMs: 2500, yaw: 2.1, up: 0.55, down: 0.6, walk: 48, perPx: 0.0045, keyRate: 1.6, walkRate: 40 };
+function resetHead() { head.tYaw = head.tPitch = head.tWalk = 0; head.ay = null; }
+const touchHead = () => { head.touched = performance.now(); };
+let headDrag = () => false;   // set by the pointer handlers below
 const headCam = () => cam === 'driver' || cam === 'standing';
 const clampHead = () => {
 	head.tYaw = clamp(head.tYaw, -HEAD.yaw, HEAD.yaw);
@@ -226,10 +226,11 @@ const clampHead = () => {
 {
 	const el = renderer.domElement;
 	let drag = null;
+	headDrag = () => !!drag;
 	el.addEventListener('pointerdown', (e) => { if (!headCam() || sim.menu) return; drag = { x: e.clientX, y: e.clientY, id: e.pointerId }; el.setPointerCapture(e.pointerId); });
 	el.addEventListener('pointermove', (e) => {
 		if (!drag || e.pointerId !== drag.id) return;
-		head.tYaw += (e.clientX - drag.x) * HEAD.perPx; head.tPitch += (e.clientY - drag.y) * HEAD.perPx;   // drag the view like grabbing it
+		head.tYaw += (e.clientX - drag.x) * HEAD.perPx; head.tPitch += (e.clientY - drag.y) * HEAD.perPx; touchHead();   // drag the view like grabbing it
 		drag.x = e.clientX; drag.y = e.clientY; clampHead();
 	});
 	const end = () => { drag = null; };
@@ -245,8 +246,12 @@ const clampHead = () => {
 function stepHead(dt) {
 	if (headCam() && !sim.menu) {
 		const has = (c) => input.keys.has(c);
-		head.tYaw += ((has('KeyJ') ? 1 : 0) - (has('KeyL') ? 1 : 0)) * HEAD.keyRate * dt;
-		head.tPitch += ((has('KeyI') ? 1 : 0) - (has('KeyK') ? 1 : 0)) * HEAD.keyRate * 0.6 * dt;
+		const ky = (has('KeyJ') ? 1 : 0) - (has('KeyL') ? 1 : 0), kp = (has('KeyI') ? 1 : 0) - (has('KeyK') ? 1 : 0);
+		if (ky || kp || headDrag()) touchHead();
+		head.tYaw += ky * HEAD.keyRate * dt;
+		head.tPitch += kp * HEAD.keyRate * 0.6 * dt;
+		// Let go for a couple of seconds and your eyes go back to following the robot.
+		if (performance.now() - (head.touched || 0) > HEAD.holdMs) { const d = Math.exp(-dt * 2.5); head.tYaw *= d; head.tPitch *= d; }
 		head.tWalk += ((has('KeyO') ? 1 : 0) - (has('KeyU') ? 1 : 0)) * HEAD.walkRate * dt;
 		if (has('KeyH')) resetHead();
 		clampHead();
@@ -302,8 +307,22 @@ addEventListener('keydown', (e) => {
 // field of view); the head turns a little toward the robot. 'standing' = eyes at 64".
 const EYE = { back: 26, h: 44, pitch: 30 };
 const UP = new THREE.Vector3(0, 1, 0);
-// Looking off to the side (at the human player) you hold your head level instead of 30 degrees down at the field.
-function turnHead() { camera.rotateOnWorldAxis(UP, head.yaw); camera.rotateX(head.pitch + 0.4 * Math.sin(Math.min(Math.abs(head.yaw), Math.PI / 2))); }
+const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const beyond = (e, zone) => Math.sign(e) * Math.max(0, Math.abs(e) - zone);
+// Eyes follow the robot on their own: the view rests on the field (the photo's angle) and only turns
+// once the robot drifts off-centre (15 degrees sideways, 8 up/down), so it stays in view wherever you drive.
+// Manual look adds on top. Looking off to the side you hold your head level instead of 30 degrees down.
+function aimHead(base, robotPos, dt) {
+	const pos = camera.position;
+	const ang = (v) => { const d = v.clone().sub(pos); return [Math.atan2(d.x, d.z), Math.atan2(d.y, Math.hypot(d.x, d.z))]; };
+	const [by, bp] = ang(base), [ry, rp] = ang(robotPos.clone().add(UP.clone().multiplyScalar(6 * IN)));
+	const wy = by + beyond(wrapA(ry - by), 0.26), wp = bp + beyond(rp - bp, 0.14);
+	if (head.ay == null) { head.ay = wy; head.ap = wp; }
+	const k = 1 - Math.exp(-dt * 4);
+	head.ay += wrapA(wy - head.ay) * k; head.ap += (wp - head.ap) * k;
+	const yaw = head.ay + head.yaw, pitch = head.ap + head.pitch + 0.4 * Math.sin(Math.min(Math.abs(head.yaw), Math.PI / 2));
+	camera.lookAt(pos.clone().add(new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))));
+}
 function updateCamera(dt) {
 	stepHead(dt);
 	const p = robot.pos();
@@ -323,17 +342,10 @@ function updateCamera(dt) {
 	} else if (cam === 'driver') {
 		const back = WALL + 2 + EYE.back;
 		camera.position.copy(W(-s * back, spot, EYE.h));
-		const base = W(-s * (back - EYE.h / Math.tan((EYE.pitch * Math.PI) / 180)), spot * 0.7, 0);
-		const want = base.clone().lerp(p, 0.14);
-		look.lerp(want, look.lengthSq() ? 0.06 : 1);
-		camera.lookAt(look);
-		turnHead();
+		aimHead(W(-s * (back - EYE.h / Math.tan((EYE.pitch * Math.PI) / 180)), spot * 0.7, 0), p, dt);
 	} else if (cam === 'standing') {
 		camera.position.copy(W(-s * (WALL + 2 + 28), spot, 64));
-		const want = p.clone().lerp(W(0, 0, 0), 0.25);
-		look.lerp(want, look.lengthSq() ? 0.08 : 1);
-		camera.lookAt(look);
-		turnHead();
+		aimHead(W(-s * 20, spot * 0.5, 0), p, dt);
 	} else if (cam === 'top') {
 		camera.position.set(0, 4.6, 0.001);
 		camera.lookAt(0, 0, 0);
@@ -371,11 +383,12 @@ function updateHud(score) {
 		return `<span class="tg own-${own}" title="${name} Toggle: yellow pins in this quarter score for ${own === 'yellow' ? 'nobody' : own}">${name}<b>${own === 'yellow' ? '—' : own.toUpperCase()}</b></span>`;
 	}).join('');
 	$('detail').textContent = `Pins placed ${s.placedPins} · halves R${s.halves.red} B${s.halves.blue} Y→R${s.halves.yellowRed} Y→B${s.halves.yellowBlue} `;
-	const spin = robot.clawMode === 'GRAB' ? 'grab' : robot.clawMode === 'RELEASE' ? 'release' : 'off';
+	const cs = { GRAB: ['grab', 'R1 GRAB · closed, spinning in'], RELEASE: ['release', 'R2 OPEN · spinning out'], STOPPED: ['stopped', 'CLOSED · stopped'] }[robot.clawMode] || ['stopped', 'CLOSED'];
+	if ($('clawState').dataset.mode !== cs[0]) { $('clawState').dataset.mode = cs[0]; $('clawState').textContent = 'CLAW ' + cs[1]; }
 	const held = robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') + (robot.clawExtraPiece ? ' + ' + (robot.clawExtraPiece.kind === 'cup' ? 'cup' : robot.clawExtraPiece.top + ' pin') : '') : '—';
 	const temp = robot.drive.maxTemp(), hot = temp >= 55 ? ` (HOT: ${temp >= 60 ? 'quarter' : 'half'} power)` : '';
 	const tip = robot.tipped() ? 'TIPPED · ' : Math.abs(robot.drive.pitch.th) > 0.03 ? 'WHEELIE · ' : '';
-	$('robot').textContent = `${tip}Lift ${robot.liftIn().toFixed(1)}" (${robot.liftPos().toFixed(0)}) · Claw ${held} (spin ${spin}) · ` +
+	$('robot').textContent = `${tip}Lift ${robot.liftIn().toFixed(1)}" (${robot.liftPos().toFixed(0)}) · Holding ${held} · ` +
 		`${humans.status(robot) ? humans.status(robot) + ' · ' : ''}Drive ${robot.op.inverse < 0 ? 'claw first' : 'claw back'} ${robot.brake} · motors ${temp.toFixed(0)}°C${hot} · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	$('source').textContent = input.source;
 }

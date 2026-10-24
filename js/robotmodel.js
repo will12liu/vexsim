@@ -334,7 +334,7 @@ export function buildRobotMesh(CFG) {
 		const sh = new THREE.Group();
 		sh.position.set(X * IN, 0, s * zs * IN);
 		shaft(sh, [0, 0.4, 0], [0, ct + 1.0, 0]);
-		for (const y of [1.3, 3.1, 4.9]) flexWheel(sh, cwr, 1.0, 0, y, 0, 'y');
+		for (const y of [1.0, 2.6, 4.2, 5.8]) flexWheel(sh, cwr, 1.0, 0, y, 0, 'y');   // 4 flex wheels per column, like the robot
 		collar(sh, 0, 0.35, 0, 'y');
 		gear(sh, zs - 1.18, 0, ct + 0.55, 0, true);
 		car.add(sh);
@@ -358,6 +358,11 @@ export function buildRobotMesh(CFG) {
 	mesh(new THREE.BoxGeometry(0.6 * IN, 0.9 * IN, 0.9 * IN), M.black, car, X + 1.75, 2.4, 0);          // optical sensor
 	mesh(new THREE.BoxGeometry(0.04 * IN, 0.25 * IN, 0.25 * IN), M.led, car, X + 1.43, 2.4, 0);
 	for (const s of [-1, 1]) zip(car, X + 2.3, ct - 0.8, s * (zs + 0.9), 0);
+	// Claw state light (sim only, so the mode reads from the driver station): green = R1 grab running
+	// (closed, spinning in), white = closed / stopped, amber = R2 release running (open, spinning out).
+	out.clawLight = new THREE.MeshBasicMaterial({ color: 0xffffff });
+	mesh(new THREE.BoxGeometry(0.8 * IN, 0.45 * IN, (2 * zs + 1.6) * IN), out.clawLight, car, X - 1.2, ct + 1.9, 0);   // strip on the brace over the gears
+	for (const s of [-1, 1]) mesh(new THREE.BoxGeometry(1.0 * IN, 3.2 * IN, 0.35 * IN), out.clawLight, car, X + 2.3, ct - 1.8, s * (zs + 1.2));
 
 	// ---- Goal guide: two hinged arms under the claw, rubber feet on the tips ----------------------
 	const gd = CFG.guide, gy = (gd.y0 + gd.y1) / 2;
