@@ -155,7 +155,7 @@ function startGame(game) {
 	$('start').value = $('mStart').value;
 	$('alliance').value = $('start').value.startsWith('red') ? 'red' : 'blue';
 	if (game === 'free') { resetField(); practice(); } else startMatch();
-	toast({ free: 'FREE DRIVE', solo: 'SOLO MATCH', ai: '2v2 vs AI' }[game]);
+	toast({ free: 'FREE DRIVE', solo: 'SOLO MATCH', ai: '2v2 vs AI' }[game], 'Drag to look around · scroll to walk · double-click to look ahead');
 }
 function showMenu() { stopAuton(); sim.menu = true; $('menu').hidden = false; document.body.classList.add('menu-open'); $('mStart').value = $('start').value; menuSel = -1; markMenu(); }
 const modeBtns = [...document.querySelectorAll('.mode')];
@@ -208,6 +208,51 @@ function setCam(c) {
 	camera.fov = cam === "driver" ? 46 : cam === 'standing' ? 50 : 52; camera.updateProjectionMatrix();
 	if (cam === 'orbit') { controls.target.set(0, 0, 0); camera.position.copy(W(-120, -40, 90)); }
 	look.set(0, 0, 0);
+	resetHead();
+}
+// Your head in the driver views: turn it to look anywhere (the human player at the Loader, the far
+// corner) and walk along the alliance station, like at a real match. Mouse / finger drag looks,
+// scroll walks, double-click resets. Keys: J L look left/right, I K up/down, U O walk, H reset.
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const head = { yaw: 0, pitch: 0, walk: 0, tYaw: 0, tPitch: 0, tWalk: 0 };
+const HEAD = { yaw: 2.1, up: 0.55, down: 0.6, walk: 48, perPx: 0.0045, keyRate: 1.6, walkRate: 40 };
+function resetHead() { head.tYaw = head.tPitch = head.tWalk = 0; }
+const headCam = () => cam === 'driver' || cam === 'standing';
+const clampHead = () => {
+	head.tYaw = clamp(head.tYaw, -HEAD.yaw, HEAD.yaw);
+	head.tPitch = clamp(head.tPitch, -HEAD.down, HEAD.up);
+	head.tWalk = clamp(head.tWalk, -HEAD.walk, HEAD.walk);
+};
+{
+	const el = renderer.domElement;
+	let drag = null;
+	el.addEventListener('pointerdown', (e) => { if (!headCam() || sim.menu) return; drag = { x: e.clientX, y: e.clientY, id: e.pointerId }; el.setPointerCapture(e.pointerId); });
+	el.addEventListener('pointermove', (e) => {
+		if (!drag || e.pointerId !== drag.id) return;
+		head.tYaw += (e.clientX - drag.x) * HEAD.perPx; head.tPitch += (e.clientY - drag.y) * HEAD.perPx;   // drag the view like grabbing it
+		drag.x = e.clientX; drag.y = e.clientY; clampHead();
+	});
+	const end = () => { drag = null; };
+	el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+	el.addEventListener('dblclick', () => { if (headCam()) resetHead(); });
+	el.addEventListener('wheel', (e) => {
+		if (!headCam() || sim.menu) return;
+		e.preventDefault();
+		head.tWalk += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * 0.06; clampHead();
+	}, { passive: false });
+	el.style.touchAction = 'none';
+}
+function stepHead(dt) {
+	if (headCam() && !sim.menu) {
+		const has = (c) => input.keys.has(c);
+		head.tYaw += ((has('KeyJ') ? 1 : 0) - (has('KeyL') ? 1 : 0)) * HEAD.keyRate * dt;
+		head.tPitch += ((has('KeyI') ? 1 : 0) - (has('KeyK') ? 1 : 0)) * HEAD.keyRate * 0.6 * dt;
+		head.tWalk += ((has('KeyO') ? 1 : 0) - (has('KeyU') ? 1 : 0)) * HEAD.walkRate * dt;
+		if (has('KeyH')) resetHead();
+		clampHead();
+	}
+	const a = 1 - Math.exp(-dt * 14);   // a head turns fast but not instantly
+	head.yaw += (head.tYaw - head.yaw) * a; head.pitch += (head.tPitch - head.pitch) * a; head.walk += (head.tWalk - head.walk) * (1 - Math.exp(-dt * 5));
 }
 // ---- Controls page -------------------------------------------------------------------
 const XBOX = { position: { A: 'B', B: 'A', X: 'Y', Y: 'X' }, letter: { A: 'A', B: 'B', X: 'X', Y: 'Y' } };
@@ -256,7 +301,11 @@ addEventListener('keydown', (e) => {
 // fitted to it: 26" back from the wall, eyes 44" up, looking 32 degrees down, ~44 degree vertical
 // field of view); the head turns a little toward the robot. 'standing' = eyes at 64".
 const EYE = { back: 26, h: 44, pitch: 30 };
-function updateCamera() {
+const UP = new THREE.Vector3(0, 1, 0);
+// Looking off to the side (at the human player) you hold your head level instead of 30 degrees down at the field.
+function turnHead() { camera.rotateOnWorldAxis(UP, head.yaw); camera.rotateX(head.pitch + 0.4 * Math.sin(Math.min(Math.abs(head.yaw), Math.PI / 2))); }
+function updateCamera(dt) {
+	stepHead(dt);
 	const p = robot.pos();
 	if (sim.menu) {   // slow fly-around behind the title
 		const a = performance.now() / 9000;
@@ -265,7 +314,7 @@ function updateCamera() {
 		return;
 	}
 	const red = $('alliance').value === 'red', s = red ? 1 : -1;
-	const spot = { left: 20, centre: 0, right: -20 }[$('spot').value] * s;
+	const spot = ({ left: 20, centre: 0, right: -20 }[$('spot').value] - head.walk) * s;
 	if (cam === 'chase') {
 		const back = new THREE.Vector3(-1, 0, 0).applyQuaternion(robot.quat());
 		const want = p.clone().addScaledVector(back, 0.9).add(new THREE.Vector3(0, 0.6, 0));
@@ -278,11 +327,13 @@ function updateCamera() {
 		const want = base.clone().lerp(p, 0.14);
 		look.lerp(want, look.lengthSq() ? 0.06 : 1);
 		camera.lookAt(look);
+		turnHead();
 	} else if (cam === 'standing') {
 		camera.position.copy(W(-s * (WALL + 2 + 28), spot, 64));
 		const want = p.clone().lerp(W(0, 0, 0), 0.25);
 		look.lerp(want, look.lengthSq() ? 0.08 : 1);
 		camera.lookAt(look);
+		turnHead();
 	} else if (cam === 'top') {
 		camera.position.set(0, 4.6, 0.001);
 		camera.lookAt(0, 0, 0);
@@ -397,7 +448,7 @@ function tick(now) {
 	field.syncMeshes();
 	for (const r of active()) r.syncMesh(frameDt);
 	updateTags();
-	updateCamera();
+	updateCamera(frameDt);
 	// A bug in the scoreboard must never stop the field from being drawn.
 	if (frame++ % 6 === 0) { try { score = field.score(mid()); updateHud(score); } catch (e) { if (!tick.warned) { console.error(e); tick.warned = true; } } }
 	renderer.render(scene, camera);

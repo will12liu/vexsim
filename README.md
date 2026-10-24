@@ -23,7 +23,7 @@ Everything it needs (three.js, Rapier, the routine) is in this repo, so nothing 
 - **Wall stacks:** the claw only takes a wall stack if you come in square through the gap behind the goal. Come in crooked and you knock a neighbour over or grab the wrong cup, then you have to clear the pins with the drivetrain.
 - **Match loads:** 10 Cups + 10 Pins (+ yellow) per alliance, as in the game manual, loaded by the human player only during driver control. The Loader is a gravity tube with a slot: the cascade must be at R1 height to fit, back in square (within about 18°), slowly, with nothing stuck in the guide. A practice "unlimited" option is on the title menu.
 - **AI robots (2v2):** Scorer, Stacker, Toggle attacker, Toggle defender, Pusher, or Random. They drive the same motor/omni physics as you, plan with A* plus pure pursuit, pick tasks by points per second using the real scoring, take match loads, fight over Toggles and park at the end. "Pro" skill is tuned to be harder than average.
-- **Driver view:** matches the alliance-station photo (eye height, distance, pitch). Left and right driver spots are on the title menu.
+- **Driver view:** matches the alliance-station photo (eye height, distance, pitch). You can turn your head and walk along the station like at a real match: drag the mouse (or a finger) to look, for example at your human player at the Loader; scroll or two-finger swipe to walk; double-click to look ahead again. Keys: J L / I K look, U O walk, H reset.
 - **Input:** keyboard, Xbox / any gamepad, or a real V5 controller over USB (Chrome/Edge, see `bridge/`). Mapping follows `src/opcontrol.cpp`.
 
 ## Auton from the robot code
