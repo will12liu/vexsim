@@ -19,8 +19,9 @@
   .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; backdrop-filter: blur(10px); box-shadow: 0 8px 30px rgba(0,0,0,.35); }
   /* Broadcast-style scoreboard */
   #board { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
-  #board .s { font: 800 34px/1 ui-monospace, SFMono-Regular, monospace; min-width: 84px; display: grid; place-items: center; padding: 8px 14px; font-variant-numeric: tabular-nums; }
-  #red { background: linear-gradient(180deg, #e8343a, #b71c22); } #blue { background: linear-gradient(180deg, #2f80f0, #1857b8); }
+  #board .s { font: 800 34px/1 ui-monospace, SFMono-Regular, monospace; min-width: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px 14px; font-variant-numeric: tabular-nums; }
+  #board .s small { font: 700 9px/1 system-ui; letter-spacing: .08em; opacity: .85; }
+  #board .s.r { background: linear-gradient(180deg, #e8343a, #b71c22); } #board .s.b { background: linear-gradient(180deg, #2f80f0, #1857b8); }
   #board .mid { background: rgba(12,14,18,.92); padding: 6px 16px; text-align: center; min-width: 150px; }
   #clock { font: 800 28px/1.1 ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
   #mode { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .14em; }
@@ -56,7 +57,8 @@
   .sheet th { text-align: left; color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); }
   .sheet td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
   .sheet td:first-child { color: #fff; } .sheet td small { color: var(--muted); display: block; }
-  #toast { position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%); font: 800 28px system-ui; background: var(--panel); padding: 10px 18px; border-radius: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast { position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%); font: 800 28px system-ui; background: var(--panel); padding: 10px 18px; border-radius: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; text-align: center; max-width: min(560px, calc(100% - 32px)); }
+  #toast small { display: block; font: 500 13px/1.4 system-ui; color: var(--muted); margin-top: 4px; }
   #toast.show { opacity: 1; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; color: var(--muted); }
   /* Title menu */
@@ -86,16 +88,16 @@
 <div id="view"></div>
 <div id="loading">Loading physics…</div>
 <div id="board">
-  <div id="red" class="s">0</div>
+  <div class="s r"><span id="red">0</span><small id="redLoads">LOADS</small></div>
   <div class="mid"><div id="clock">--:--</div><div id="mode">PRACTICE</div><div id="toggles"></div></div>
-  <div id="blue" class="s">0</div>
+  <div class="s b"><span id="blue">0</span><small id="blueLoads">LOADS</small></div>
 </div>
 <div id="hud" class="panel"><details><summary>Match &amp; settings</summary>
   <div class="row"><button class="primary" id="btnMatch">Restart match (M)</button><button id="btnPractice">Free drive (P)</button><button id="btnReset">Reset (T)</button><button id="btnMenu">Menu (Esc)</button></div>
   <div class="row"><button id="btnCam">View: driver</button></div>
   <div class="row">
     <label class="f">Alliance<select id="alliance"><option value="red">Red</option><option value="blue">Blue</option></select></label>
-    <label class="f">Driver spot<select id="spot"><option value="left">Left</option><option value="centre">Centre</option><option value="right" selected>Right</option></select></label>
+    <label class="f">Driver spot<select id="spot"><option value="left" selected>Left</option><option value="centre">Centre</option><option value="right">Right</option></select></label>
   </div>
   <div class="row">
     <label class="f">Start<select id="start"><option value="red1">Red 1 Toggle</option><option value="red2">Red 2 Toggle</option><option value="blue1">Blue 1 Toggle</option><option value="blue2">Blue 2 Toggle</option></select></label>
@@ -109,24 +111,12 @@
 <div id="status" class="panel"><span id="robot"></span></div>
 <div id="auton" class="panel">
   <details><summary>Auton routine</summary>
-  <div class="row"><select id="side"><option value="left">LEFT</option><option value="right">RIGHT</option></select><button id="btnAuton">Run auton (D-pad ↓)</button><button id="btnStop">Stop</button></div>
+  <div class="row"><label class="muted">Side <select id="side"><option value="left">LEFT</option><option value="right">RIGHT</option></select></label><button id="btnAuton">Practice auton (D-pad ↓)</button><button id="btnStop">Stop</button></div>
+  <div class="row muted" id="sideNote"></div>
   <textarea id="routine" spellcheck="false">
 void run_routine() {
-	// 1. Hit the Toggle twice 
-	drive_time(-50,500);//backup
-	drive_time(127, 900);//forward
-	wait(150); //wait
-	drive_time(-50, 600);        // back up        
-	drive_time(127, 950);        // hit 2: drive in
-	wait(150);           
-	drive_time(-95, 350);        // back off the Toggle a little
-
-	//2. score preloaded pin               
-	turn(mirror(-85), 100);      // turn so the BACK (claw side) faces our goal
-	move(-45, 50);              // reverse toward the goal
-	claw_out();                  // claw vertical -> horizontal
-	claw_drop();                 // claw spin (A button) to drop the pin
-	claw_up();                   // claw slightly up (B's 2nd press)
+	// routine.cpp from the robot code loads here
+	drive_time(127, 900);
 }
 </textarea>
   <div id="log"></div>
@@ -135,12 +125,12 @@ void run_routine() {
 <button id="btnHelp" class="panel">Controls <kbd>?</kbd></button>
 <div id="controls" hidden><div class="sheet">
   <div class="sheet-head"><h2>Controls</h2><button id="btnHelpClose">Close (Esc)</button></div>
-  <p class="muted">Same mapping as <code>src/opcontrol.cpp</code>. Plug in an Xbox controller (USB or Bluetooth) and press any button, or click <b>Connect V5 controller</b> in Match &amp; settings.</p>
+  <p class="muted">Same mapping as <code>src/opcontrol.cpp</code> (4787T-Titanium-Vex-Override). Plug in an Xbox controller (USB or Bluetooth) and press any button, or click <b>Connect V5 controller</b> in Match &amp; settings.</p>
   <div class="row"><button class="primary" id="btnPadSetup">Set up my controller</button><button id="btnPadReset">Reset to default</button><span class="muted" id="padSetupMsg">Buttons in the wrong place (e.g. a knockoff or Switch-style pad)? Set it up once: press each V5 button when asked. It's remembered on this computer.</span></div>
   <table><thead><tr><th>Action</th><th>V5 controller</th><th>Xbox</th><th>Keyboard</th></tr></thead><tbody id="ctrlRows"></tbody></table>
   <h3>Simulator</h3>
   <table><tbody>
-    <tr><td>Switch view (driver → chase → orbit → top)</td><td><kbd>V</kbd></td></tr>
+    <tr><td>Switch view (driver, like the field photo → driver standing → chase → orbit → top)</td><td><kbd>V</kbd></td></tr>
     <tr><td>Start a match (15 s auton + 1:45 driver)</td><td><kbd>M</kbd></td></tr>
     <tr><td>Free drive (no timer)</td><td><kbd>P</kbd></td></tr>
     <tr><td>Title menu (game modes)</td><td><kbd>Esc</kbd></td></tr>
@@ -153,23 +143,24 @@ void run_routine() {
   <h1>TITANIUM <span>SIM</span></h1>
   <div class="sub">3D physics simulator of our robot</div>
   <div class="modes">
-    <button class="mode" data-game="free"><span class="k">1</span><b>Free Drive</b><small>Just you on the field. No timer, no rules. Practice grabbing stacks with the claw and scoring.</small></button>
+    <button class="mode" data-game="free"><span class="k">1</span><b>Free Drive</b><small>Just you on the field. No timer. Practice slow grabs, match loads and smooth driving. D-pad ↓ runs your auton.</small></button>
     <button class="mode" data-game="solo"><span class="k">2</span><b>Solo Match</b><small>A full match by yourself: 15 s auton (your routine) then 1:45 driver control.</small></button>
     <button class="mode" data-game="ai"><span class="k">3</span><b>2v2 vs AI</b><small>Full match with an AI partner on your alliance and two AI opponents.</small></button>
   </div>
   <div class="opts">
     <label class="f">Your start<select id="mStart"><option value="red1">Red 1 Toggle</option><option value="red2">Red 2 Toggle</option><option value="blue1">Blue 1 Toggle</option><option value="blue2">Blue 2 Toggle</option></select></label>
-    <label class="f">AI skill<select id="mSkill"><option value="0.6">Rookie</option><option value="0.8" selected>Regular</option><option value="1">Pro</option></select></label>
+    <label class="f">AI skill<select id="mSkill"><option value="0.6">Rookie</option><option value="0.8">Regular</option><option value="1" selected>Pro (HK-level)</option></select></label>
     <button id="mControls">Controls</button>
   </div>
   <div class="opts">
     <label class="f">Human player loads<select id="mHuman"><option value="cupOwn" selected>Cup + your-colour pin</option><option value="cupYellow">Cup + yellow pin</option><option value="pinOwn">Your-colour pin only</option><option value="pinYellow">Yellow pin only</option><option value="off">Nothing (off)</option></select></label>
     <label class="f">At which Loader<select id="mLoader"><option value="both" selected>Both</option><option value="left">Left (from your station)</option><option value="right">Right (from your station)</option></select></label>
+    <label class="f">Match loads<select id="mLoads"><option value="real" selected>10 Cups + 10 Pins (real)</option><option value="unlimited">Unlimited (practice)</option></select></label>
   </div>
   <div class="opts">
-    <label class="f">AI partner (2v2)<select id="mStratP"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Yellow stacker (cascade bot)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender" selected>Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
-    <label class="f">AI opponent 1<select id="mStratO1"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Yellow stacker (cascade bot)</option><option value="attacker" selected>Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
-    <label class="f">AI opponent 2<select id="mStratO2"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker" selected>Yellow stacker (cascade bot)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
+    <label class="f">AI partner (2v2)<select id="mStratP"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Stacker (cascade bot, match loads)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender" selected>Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
+    <label class="f">AI opponent 1<select id="mStratO1"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Stacker (cascade bot, match loads)</option><option value="attacker" selected>Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
+    <label class="f">AI opponent 2<select id="mStratO2"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker" selected>Stacker (cascade bot, match loads)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
     <button id="mPad" title="For USB controllers the browser does not pick up by itself">Connect controller</button>
   </div>
   <div class="hint">Click a mode, press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>, or use the D-pad + A on a controller. <kbd>Esc</kbd> brings this menu back.</div>

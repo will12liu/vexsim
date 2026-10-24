@@ -7,8 +7,9 @@ export const IN = 0.0254;
 export const W = (fx, fy, h = 0) => new THREE.Vector3(fx * IN, h * IN, -fy * IN);
 export const toField = (v) => ({ fx: v.x / IN, fy: -v.z / IN, h: v.y / IN });
 
-export const FIELD_HALF = 72;
-export const WALL_H = 12;
+export const FIELD_HALF = 72;                // tiles: 6 x 6 of 24", they run under the walls
+export const WALL = 70.2;                    // inside face of the perimeter (Appendix A: 140.4" wall to wall)
+export const WALL_H = 11.54;
 export const MID = 24;                       // Midfield is |fx| + |fy| <= MID
 // Pin dimensions from the official drawing: 6.50" tall, collar Ø3.16, the bottom colour
 // runs from the base to 2.93" (where the collar starts).
@@ -16,7 +17,7 @@ export const PIN_R = 1.58, PIN_H = 6.5, PIN_COLLAR = 2.93;
 export const CUP_R = 1.575, CUP_H = 6.5;     // manual: 3.15" x 6.5"
 const GOAL_R = 1.7, GOAL_INNER = 1.27, GOAL_DEPTH = 3.0;   // round hole Ø2.54, pin collar rests on the rim
 const GOAL_HEIGHT = { alliance: 3.25, short: 5.8, tall: 8.7 };
-export const TOGGLE = { axisH: 13.5, inset: 0.3, len: 25.8, face: 2.05 };
+export const TOGGLE = { axisH: WALL_H + 1.19, inset: 0.3, len: 25.8, face: 2.03 };   // on top of the wall
 // Face 0 faces the field at rest; each hit shows the next face. Each Toggle is mounted so
 // the Quadrant's own colour comes up on the 2nd hit (per the team).
 // Shove needed to flip a Toggle one face, in N*s (momentum + push). Raise to make it harder.
@@ -38,23 +39,25 @@ const GOALS = [
 	{ fx: 24, fy: -48, type: 'short', color: 'neutral' },
 ];
 
-// Loaders: a clear tube hung on the inside of each alliance-station wall near the corner, in the
-// Load Zone, with its stack standing on a low base (snug around the claw: grab it with the cascade down, back out, then lift). The
-// human player slides the tube up, sets the stack in and slides it back down (human.js). The
-// tube is open on the field side: the robot backs in square with the lift at the base and the
-// claw spinning in, and the rollers pull the stack out. n = which way the open side faces (+1 = +fx).
-export const LOADER = { base: 0.6, off: 2.4, inner: 3.6, h: 13, slide: 8 };
+// Loaders (Appendix A "Loader specifications"): a clear 3.74"-square tube hung on the inside of each
+// alliance-station wall near the corner, 23" tall, with a slot at the bottom (up to 11.85") open to the
+// field and both sides. Match loads stand on the tiles inside it, one nested on the next (gravity fed,
+// two cup + pin stacks fit). The human player drops them in through the top (<SG11>); a robot of
+// that alliance takes the bottom one out through the slot (the claw has to fit under the tube).
+// n = which way the slot faces (+1 = +fx).
+export const LOADER = { inner: 3.74, outer: 4.02, h: 23, slotTop: 11.85, off: 2.26, cap: 2, stackStep: 6.95 };
+export const MATCH_LOADS = { cups: 10, pins: 10, yellow: 1 };   // per alliance: 10 Cups, 10 alliance/yellow Pins, 1 yellow/yellow
 const LOADERS = [
-	{ alliance: 'red', fx: -72.5, fy: 62, n: 1 }, { alliance: 'red', fx: -72.5, fy: -62, n: 1 },
-	{ alliance: 'blue', fx: 72.5, fy: 62, n: -1 }, { alliance: 'blue', fx: 72.5, fy: -62, n: -1 },
+	{ alliance: 'red', fx: -WALL, fy: 60.7, n: 1 }, { alliance: 'red', fx: -WALL, fy: -60.7, n: 1 },
+	{ alliance: 'blue', fx: WALL, fy: 60.7, n: -1 }, { alliance: 'blue', fx: WALL, fy: -60.7, n: -1 },
 ];
 
 // Toggles: one per Quadrant, centred on each wall. n = inward normal (field coords).
 export const TOGGLES = [
-	{ quad: 'red1', fx: -FIELD_HALF, fy: 0, n: [1, 0] },
-	{ quad: 'blue1', fx: FIELD_HALF, fy: 0, n: [-1, 0] },
-	{ quad: 'blue2', fx: 0, fy: FIELD_HALF, n: [0, -1] },
-	{ quad: 'red2', fx: 0, fy: -FIELD_HALF, n: [0, 1] },
+	{ quad: 'red1', fx: -WALL, fy: 0, n: [1, 0] },
+	{ quad: 'blue1', fx: WALL, fy: 0, n: [-1, 0] },
+	{ quad: 'blue2', fx: 0, fy: WALL, n: [0, -1] },
+	{ quad: 'red2', fx: 0, fy: -WALL, n: [0, 1] },
 ];
 
 // Foam tile texture: one 24" tile with interlocking edges, repeated 6 x 6.
@@ -225,21 +228,22 @@ export class Field {
 		const poly = new THREE.MeshStandardMaterial({ color: 0xe6f0fa, transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0.1, depthWrite: false });
 		const alu = new THREE.MeshStandardMaterial({ color: 0xc8ccd1, metalness: 0.85, roughness: 0.3 });
 		const wallBody = world.createRigidBody(R.RigidBodyDesc.fixed());
-		for (const [fx, fy, sx, sy] of [[-73, 0, 1, 148], [73, 0, 1, 148], [0, 73, 148, 1], [0, -73, 148, 1]]) {
+		const Wc = WALL + 1, Wl = 2 * WALL + 4;   // 2"-thick portable perimeter
+		for (const [fx, fy, sx, sy] of [[-Wc, 0, 2, Wl], [Wc, 0, 2, Wl], [0, Wc, Wl, 2], [0, -Wc, Wl, 2]]) {
 			world.createCollider(R.ColliderDesc.cuboid((sx / 2) * IN, (WALL_H / 2) * IN, (sy / 2) * IN)
 				.setTranslation(fx * IN, (WALL_H / 2) * IN, -fy * IN).setFriction(0.3)
 				.setCollisionGroups(groups(GROUP.wall, 0xffff & ~GROUP.toggle)), wallBody);
-			const panel = new THREE.Mesh(new THREE.BoxGeometry((sx > 1 ? sx : 0.3) * IN, (WALL_H - 3) * IN, (sy > 1 ? sy : 0.3) * IN), poly);
+			const panel = new THREE.Mesh(new THREE.BoxGeometry((sx > 2 ? sx : 0.3) * IN, (WALL_H - 3) * IN, (sy > 2 ? sy : 0.3) * IN), poly);
 			panel.position.copy(W(fx, fy, 1.5 + (WALL_H - 3) / 2));
 			scene.add(panel);
 			for (const [h, t] of [[1, 2], [WALL_H - 0.75, 1.5]]) {
-				const rail = new THREE.Mesh(new THREE.BoxGeometry(Math.max(sx, 1.2) * IN, t * IN, Math.max(sy, 1.2) * IN), alu);
+				const rail = new THREE.Mesh(new THREE.BoxGeometry(Math.max(sx, 2) * IN, t * IN, Math.max(sy, 2) * IN), alu);
 				rail.position.copy(W(fx, fy, h)); rail.castShadow = rail.receiveShadow = true;
 				scene.add(rail);
 			}
-			for (let k = -72; k <= 72; k += 24) {
-				const post = new THREE.Mesh(new THREE.BoxGeometry(1.2 * IN, WALL_H * IN, 1.2 * IN), alu);
-				post.position.copy(W(sx > 1 ? k : fx, sx > 1 ? fy : k, WALL_H / 2)); post.castShadow = true;
+			for (let k = -WALL - 1; k <= WALL + 1.01; k += (2 * WALL + 2) / 6) {
+				const post = new THREE.Mesh(new THREE.BoxGeometry(2 * IN, WALL_H * IN, 2 * IN), alu);
+				post.position.copy(W(sx > 2 ? k : fx, sx > 2 ? fy : k, WALL_H / 2)); post.castShadow = true;
 				scene.add(post);
 			}
 		}
@@ -249,14 +253,13 @@ export class Field {
 	}
 
 	// ---- Loaders ---------------------------------------------------------------
-	// Small clear tube, open on the field side, on an alliance-coloured base, hooked over the wall.
-	// The tube itself (the sleeve) slides up while loading. Tag + floor glow are switched on for the
-	// driver's own loaders by setMine().
+	// Clear tube on an aluminium hanger hooked over the wall. Tag + floor glow are switched on for
+	// the driver's own loaders by setMine().
 	buildLoader(L) {
-		const { R, world, scene } = this, c = COLORS[L.alliance], hw = LOADER.inner / 2 + 0.12;
+		const { R, world, scene } = this, c = COLORS[L.alliance], o = LOADER.outer / 2;
 		const px = L.fx + L.n * LOADER.off, grp = new THREE.Group();
 		grp.position.copy(W(px, L.fy, 0));
-		grp.rotation.y = L.n > 0 ? 0 : Math.PI;   // local +x = the open side, toward the field
+		grp.rotation.y = L.n > 0 ? 0 : Math.PI;   // local +x = the slot side, toward the field
 		scene.add(grp);
 		const box = (sx, sy, sz, x, y, z, mat, parent = grp) => {
 			const m = new THREE.Mesh(new THREE.BoxGeometry(sx * IN, sy * IN, sz * IN), mat);
@@ -265,51 +268,74 @@ export class Field {
 		};
 		const team = new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, emissive: c, emissiveIntensity: 0 });
 		const alu = new THREE.MeshStandardMaterial({ color: 0xc8ccd1, metalness: 0.8, roughness: 0.35 });
-		const clear = new THREE.MeshPhysicalMaterial({ color: 0xeef6ff, transparent: true, opacity: 0.28, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
-		const b = LOADER.base, h = LOADER.h, w = LOADER.inner + 0.8, off = LOADER.off;
-		// Base the stack stands on, and the bracket that hooks it over the wall.
-		box(w, 0.6, w, 0, b - 0.3, 0, team);
-		box(0.25, WALL_H + 0.9 - b, 3, -off, (WALL_H + 0.9 + b) / 2, 0, alu);
-		box(off - w / 2 + 0.2, 0.5, 3, -(off + w / 2) / 2, b - 0.35, 0, alu);
-		box(1.6, 0.25, 3, -off - 0.7, WALL_H + 0.9, 0, alu);
-		const body = world.createRigidBody(R.RigidBodyDesc.fixed());
-		world.createCollider(R.ColliderDesc.cuboid((w / 2) * IN, 0.3 * IN, (w / 2) * IN).setTranslation(px * IN, (b - 0.3) * IN, -L.fy * IN), body);
-		// Tube walls (back + sides) as one solid block: robots can't drive into it.
-		world.createCollider(R.ColliderDesc.cuboid(hw * IN, (h / 2) * IN, hw * IN).setTranslation(px * IN, (b + h / 2) * IN, -L.fy * IN), body);
-		// The sleeve: back + two clear sides, coloured bands at both ends, a handle at the top.
-		const sleeve = new THREE.Group();
-		sleeve.position.y = b * IN;
-		grp.add(sleeve);
-		box(0.12, h, 2 * hw, -hw + 0.06, h / 2, 0, clear, sleeve);
-		for (const z of [-1, 1]) box(2 * hw, h, 0.12, 0, h / 2, z * (hw - 0.06), clear, sleeve);
-		for (const z of [-1, 1]) box(0.3, h, 0.3, hw - 0.15, h / 2, z * (hw - 0.15), alu, sleeve);   // edges of the open side
-		for (const y of [0.35, h - 0.35]) {
-			box(0.4, 0.7, 2 * hw + 0.2, -hw, y, 0, team, sleeve);
-			for (const z of [-1, 1]) box(2 * hw + 0.2, 0.7, 0.4, 0, y, z * hw, team, sleeve);
+		const clear = new THREE.MeshPhysicalMaterial({ color: 0xeef6ff, transparent: true, opacity: 0.26, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
+		const H = LOADER.h, st = LOADER.slotTop, t = 0.14;
+		// Upper tube (four clear walls) above the slot; below it only the back wall and two corner posts.
+		box(t, H - st, 2 * o, -o + t / 2, (H + st) / 2, 0, clear);
+		box(t, H - st, 2 * o, o - t / 2, (H + st) / 2, 0, clear);
+		for (const z of [-1, 1]) box(2 * o, H - st, t, 0, (H + st) / 2, z * (o - t / 2), clear);
+		box(t, st, 2 * o, -o + t / 2, st / 2, 0, clear);
+		for (const z of [-1, 1]) box(0.35, st, 0.35, -o + 0.2, st / 2, z * (o - 0.2), alu);
+		// Coloured bands: at the top, round the slot's top edge, and the base of the back.
+		for (const y of [H - 0.4, st + 0.35]) {
+			box(0.3, 0.7, 2 * o + 0.2, -o, y, 0, team); box(0.3, 0.7, 2 * o + 0.2, o, y, 0, team);
+			for (const z of [-1, 1]) box(2 * o + 0.2, 0.7, 0.3, 0, y, z * o, team);
 		}
-		box(1.4, 0.6, 2.2, -hw - 0.5, h - 0.35, 0, team, sleeve);
+		box(0.3, 0.7, 2 * o, -o, 0.4, 0, team);
+		// Hanger: plate behind the tube, a hook over the 2" wall top, a lip down the outside.
+		const wf = -LOADER.off;   // the wall's inside face (local x)
+		box(0.2, H - 0.5, 3, (wf + -o) / 2, H / 2, 0, alu);
+		box(2.6, 0.3, 3, wf - 1.1, WALL_H + 0.15, 0, alu);
+		box(0.2, 3, 3, wf - 2.15, WALL_H - 1.4, 0, alu);
+		const body = world.createRigidBody(R.RigidBodyDesc.fixed());
+		const col = (sx, sy, sz, x, y, z) => world.createCollider(R.ColliderDesc.cuboid(sx * IN / 2, sy * IN / 2, sz * IN / 2)
+			.setTranslation((px + L.n * x) * IN, y * IN, -L.fy * IN).setFriction(0.3).setCollisionGroups(groups(GROUP.fixed, 0xffff & ~GROUP.claw)), body);
+		col(2 * o, H - st, 2 * o, 0, (H + st) / 2, 0);    // upper tube: solid
+		col(0.4, st, 2 * o, -o + 0.2, st / 2, 0);         // back wall of the slot
 		// Load Zone glow and the floating tag (ours only).
 		const zoneMat = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.2, depthWrite: false });
-		const zone = new THREE.Mesh(new THREE.PlaneGeometry(14 * IN, 26 * IN), zoneMat);
+		const zone = new THREE.Mesh(new THREE.PlaneGeometry((WALL - 58) * IN, (WALL - 46) * IN), zoneMat);
 		zone.rotation.x = -Math.PI / 2;
-		zone.position.copy(W(L.fx + L.n * 7.25, Math.sign(L.fy) * 59, 0.03));
+		zone.position.copy(W(L.fx + L.n * (WALL - 58) / 2, Math.sign(L.fy) * (WALL + 46) / 2, 0.03));
 		scene.add(zone);
 		const tag = textSprite('YOUR LOADER', L.alliance === 'red' ? '#ff6b6b' : '#6bb0ff');
-		tag.position.set(0, (b + h + 6) * IN, 0);
+		tag.position.set(0, (H + 5) * IN, 0);
 		grp.add(tag);
-		this.loaders.push({ ...L, px, grp, sleeve, team, zone, zoneMat, tag, mine: false, slideY: 0, stack: null, ready: false });
+		this.loaders.push({ ...L, px, grp, team, zone, zoneMat, tag, mine: false, stacks: [], stack: null, ready: false, drop: null });
 	}
+
+	has(o) { return this.pins.includes(o) || this.cups.includes(o); }
 
 	removePiece(o) {
 		this.world.removeRigidBody(o.body); this.scene.remove(o.mesh);
 		this.pins = this.pins.filter((p) => p !== o); this.cups = this.cups.filter((p) => p !== o);
 	}
 
-	// The claw takes loader L's stack: hand over its bottom piece (the claw grabs it and its partner).
+	// Loader contents: L.stacks = [[cup, pin], ...] bottom first; L.stack = the bottom one (what a robot takes).
+	syncLoaderStack(L) {
+		L.stacks = L.stacks.filter((st) => st.every((o) => o.held === 'loader' && this.has(o)));
+		L.stack = L.stacks[0] || null;
+		L.ready = !!L.stack && !L.drop;
+	}
+
+	// Place loader pieces: each stack stands on the one below (nested), `fall` inches still to drop.
+	placeLoaderStacks(L) {
+		let base = 0;
+		for (const st of L.stacks) {
+			const fall = st.fall || 0;
+			for (const o of st) o.body.setNextKinematicTranslation(W(L.px, L.fy, base + o.loadY + fall));
+			base += st.step;
+		}
+	}
+	loaderHeight(L) { return L.stacks.reduce((a, st) => a + st.step, 0); }
+
+	// The claw takes loader L's bottom stack: hand over its bottom piece (the claw grabs it and its
+	// partner); the ones above drop down the tube.
 	takeLoader(L) {
-		const st = L.stack;
-		L.stack = null; L.ready = false;
+		const st = L.stacks.shift();
 		for (const o of st) o.held = null;
+		for (const up of L.stacks) up.fall = (up.fall || 0) + st.step;
+		this.syncLoaderStack(L);
 		return st.reduce((a, o) => (o.body.translation().y < a.body.translation().y ? o : a));
 	}
 
@@ -325,11 +351,39 @@ export class Field {
 	syncLoaders() {
 		const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 250);
 		for (const L of this.loaders) {
-			L.sleeve.position.y = (LOADER.base + L.slideY) * IN;
 			L.team.emissiveIntensity = L.mine ? 0.3 + 0.5 * pulse : 0;
 			L.zoneMat.opacity = 0.12 + 0.12 * pulse;
 			L.tag.material.opacity = L.ready ? 1 : 0.5;
 		}
+	}
+
+	// Gravity feed: stacks still falling down the tube settle (called every physics step).
+	stepLoaders(dt) {
+		for (const L of this.loaders) {
+			this.syncLoaderStack(L);
+			let moving = false;
+			for (const st of L.stacks) if (st.fall > 0) { st.v = (st.v || 0) + 9.81 / IN * dt; st.fall = Math.max(0, st.fall - st.v * dt); moving = true; if (!st.fall) st.v = 0; }
+			L.drop = moving ? L.drop || true : null;
+			this.placeLoaderStacks(L);
+			this.syncLoaderStack(L);
+		}
+	}
+
+	// A pin sitting in a cup <-> that cup.
+	partnerOf(o) {
+		const to = o.body.translation();
+		for (const k of o.kind === 'cup' ? this.pins : this.cups) {
+			if (k === o || k.held) continue;
+			const t = k.body.translation(), flat = Math.hypot(t.x - to.x, t.z - to.z) / IN, dy = (t.y - to.y) / IN;
+			if (flat < 1.3 && (o.kind === 'cup' ? dy > 0.5 && dy < 5.5 : dy < -0.5 && dy > -5.5)) return k;
+		}
+		return null;
+	}
+
+	// Sitting on a goal (in its hole or stacked on it)?
+	onGoal(o) {
+		const t = toField(o.body.translation());
+		return this.goals.some((g) => Math.hypot(t.fx - g.fx, t.fy - g.fy) < 2.5 && t.h > g.base);
 	}
 
 	buildTape() {
@@ -345,13 +399,14 @@ export class Field {
 		// Midfield square (a diamond in field coords).
 		line(0, MID, MID, 0); line(MID, 0, 0, -MID); line(0, -MID, -MID, 0); line(-MID, 0, 0, MID);
 		// Autonomous Line: doubled diagonal top-left -> bottom-right, single lines on the other diagonal.
-		for (const o of [-1.2, 1.2]) { line(-70 + o, 70 + o, -MID / 2 + o, MID / 2 + o); line(MID / 2 + o, -MID / 2 + o, 70 + o, -70 + o); }
-		line(-70, -70, -MID / 2, -MID / 2); line(MID / 2, MID / 2, 70, 70);
+		const E = WALL - 1.5;
+		for (const o of [-1.2, 1.2]) { line(-E + o, E + o, -MID / 2 + o, MID / 2 + o); line(MID / 2 + o, -MID / 2 + o, E + o, -E + o); }
+		line(-E, -E, -MID / 2, -MID / 2); line(MID / 2, MID / 2, E, E);
 		// Load Zone tape.
 		const red = new THREE.MeshBasicMaterial({ color: COLORS.red }), blue = new THREE.MeshBasicMaterial({ color: COLORS.blue });
 		for (const sy of [1, -1]) {
-			line(-58, 72 * sy, -58, 46 * sy, 1, red); line(-72, 46 * sy, -58, 46 * sy, 1, red);
-			line(58, 72 * sy, 58, 46 * sy, 1, blue); line(72, 46 * sy, 58, 46 * sy, 1, blue);
+			line(-58, WALL * sy, -58, 46 * sy, 1, red); line(-WALL, 46 * sy, -58, 46 * sy, 1, red);
+			line(58, WALL * sy, 58, 46 * sy, 1, blue); line(WALL, 46 * sy, 58, 46 * sy, 1, blue);
 		}
 	}
 
@@ -573,6 +628,8 @@ export class Field {
 	// Starting configuration (Figure FO-2), read off the overhead diagram.
 	reset() {
 		this.clearObjects();
+		this.loads = { red: { ...MATCH_LOADS }, blue: { ...MATCH_LOADS } };
+		for (const L of this.loaders) { L.stacks = []; L.stack = null; L.ready = false; L.drop = null; }
 		for (const tg of this.toggles) {
 			tg.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
 			tg.index = 0; tg.alpha = 0; tg.touching = false;
@@ -588,7 +645,7 @@ export class Field {
 		for (const [ax, ay] of [[-1, 0], [1, 0], [0, 1], [0, -1]]) {
 			for (const off of [-23, 23]) {
 				for (const d of [-8, 0, 8]) {
-					const along = off + d, wallPos = 69.6;
+					const along = off + d, wallPos = WALL - CUP_R - 0.3;
 					const fx = ax ? ax * wallPos : along, fy = ay ? ay * wallPos : along;
 					cupWithPin(fx, fy, true, d === 0 ? 'yellow' : null, 'yellow');
 				}
@@ -616,10 +673,10 @@ export class Field {
 	// where it can legally go: a pin onto an empty goal or into a cup, a cup onto a pin (<SC3>).
 	// Where piece o (pin or cup) could legally go on a goal it's over: { g, top, surface, seatBottom }
 	// (seatBottom = height of the piece's bottom once seated), or null.
-	seatFor(o) {
+	seatFor(o, tol = 2.5) {
 		const t = toField(o.body.translation()), cup = this.cups.includes(o);
 		for (const g of this.goals) {
-			if (Math.hypot(t.fx - g.fx, t.fy - g.fy) > 2.5) continue;
+			if (Math.hypot(t.fx - g.fx, t.fy - g.fy) > tol) continue;
 			let top = null, topH = -1;
 			for (const k of [...this.pins, ...this.cups]) {
 				if (k === o || k.held) continue;
@@ -634,10 +691,10 @@ export class Field {
 		return null;
 	}
 
-	assistDrop(o) {
+	assistDrop(o, tol = 2.5) {
 		const t = toField(o.body.translation()), cup = this.cups.includes(o);
 		for (const g of this.goals) {
-			if (Math.hypot(t.fx - g.fx, t.fy - g.fy) > 2.5) continue;
+			if (Math.hypot(t.fx - g.fx, t.fy - g.fy) > tol) continue;
 			let top = null, topH = -1;
 			for (const k of [...this.pins, ...this.cups]) {
 				if (k === o || k.held) continue;

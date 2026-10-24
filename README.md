@@ -1,21 +1,44 @@
 # Titanium Sim
 
-3D physics simulator of team Titanium's VEX V5RC **Override** (2026–27) robot. Runs in the browser (three.js + Rapier), no build step.
+3D physics simulator of team 4787T Titanium's VEX V5RC **Override** (2026–27) robot. Runs in the browser (three.js + Rapier), no build step.
 
-- **Modes:** Free Drive, Solo Match (15 s auton + 1:45 driver), 2v2 vs AI
-- **AI robots (2v2):** pick each one's strategy on the title menu: Scorer (intake bot), Yellow stacker (cascade bot, tall cup + yellow pin stacks on goals you own), Toggle attacker (wedge bot, flips the other alliance's Toggles), Toggle defender (DR4B bot, keeps yours and blocks), Pusher (defense), or Random. All of them park in the Midfield for the last 9 s.
-- **Human player:** pick what they load (cup + your pin, cup + yellow pin, pin only, or off) and at which Loader (both, left, right) on the title menu
-- **Input:** keyboard, Xbox / any gamepad, or a real V5 controller over USB (Chrome/Edge, see `bridge/`)
-- **Robot (10/19):** flex-wheel claw on the back that grabs a cup + pin stack (drive claw first into it, or R1 grab spin; R2 / A lets go), cascade lift, no intake. The human player keeps a stack standing at each of your corner Loaders.
-- Press **?** in the sim for the full controls
+Run locally: `python3 -m http.server 8765` in this folder, then open http://localhost:8765. Press **?** in the sim for the full controls.
 
-Run locally: `python3 -m http.server 8765` in this folder, then open http://localhost:8765.
+## What it simulates
 
-## Auton routine from the robot code
+- **Modes:** Free Drive (D-pad ↓ runs a 15 s practice auton), Solo Match (15 s auton + 1:45 driver), 2v2 vs AI.
+- **Drivetrain:** not a velocity setter. Each side is two V5 motors (torque curve, back-EMF, current limit, heat throttling) through gears with backlash, into wheels that can stick or slip. Omni wheels slide sideways, the robot coasts when you let go, and the two sides are slightly mismatched. With the cascade up the robot rocks, can wheelie, and tips if you slam the stick (the opcontrol anti-tip scale is ported). Smooth stick work is the whole point.
+- **Robot (from the photos):** silver drive with red gears, cascade lift, flex-wheel claw on the back with the V-shaped guide below it. The rollers, guide arms and rubber feet are real colliders, so a pin knocked over into the guide stays there and blocks the claw ("CLAW BLOCKED") until you drive it out.
+- **Ground pickups:** drive claw first into a standing cup + pin with R1 spinning, slowly (under about 6 in/s). Faster and the stack is knocked over.
+- **Wall stacks:** the claw only takes a wall stack if you come in square through the gap behind the goal. Come in crooked and you knock a neighbour over or grab the wrong cup, then you have to clear the pins with the drivetrain.
+- **Match loads:** 10 Cups + 10 Pins (+ yellow) per alliance, as in the game manual, loaded by the human player only during driver control. The Loader is a gravity tube with a slot: the cascade must be at R1 height to fit, back in square (within about 18°), slowly, with nothing stuck in the guide. A practice "unlimited" option is on the title menu.
+- **AI robots (2v2):** Scorer, Stacker, Toggle attacker, Toggle defender, Pusher, or Random. They drive the same motor/omni physics as you, plan with A* plus pure pursuit, pick tasks by points per second using the real scoring, take match loads, fight over Toggles and park at the end. "Pro" skill is tuned to be harder than average.
+- **Driver view:** matches the alliance-station photo (eye height, distance, pitch). Left and right driver spots are on the title menu.
+- **Input:** keyboard, Xbox / any gamepad, or a real V5 controller over USB (Chrome/Edge, see `bridge/`). Mapping follows `src/opcontrol.cpp`.
 
-`routine.cpp` is a copy of `src/routine.cpp` from [will12liu/titaniumvex](https://github.com/will12liu/titaniumvex) (main). The sim loads its `run_routine()` into the auton editor. To update it:
+## Auton from the robot code
 
-- **By hand:** `sh tools/sync-robot-code.sh` (needs the robot repo checked out next to this one), then commit and push.
-- **Automatically:** `.github/workflows/sync-robot-code.yml` checks hourly, once a `TITANIUMVEX_TOKEN` secret (fine-grained token, read-only Contents on titaniumvex) is added to this repo.
+`routine.cpp` is a copy of `src/routine.cpp` from [will12liu/4787T-Titanium-Vex-Override](https://github.com/will12liu/4787T-Titanium-Vex-Override) (main). The sim translates the C++ (`js/cpp.js`) and runs `run_routine()` in the auton editor.
 
-Supported commands: `move turn turn_to drive_time wait move_pid turn_pid lift_goal lift_down lift_wait lift_secs claw_drop spin_claw score mirror on_left on_right is_red is_blue`, plus the LemLib ones `set_pose drive_to back_to back_dist back_past face face_heading drive_to_pose back_to_pose` (the sim gives them perfect odometry). The old `claw_in claw_out claw_up intake` still run but do nothing (no claw flip or intake on the robot now).
+- **LemLib:** `chassis.moveToPoint / turnToHeading / moveToPose / turnToPoint` use the robot's PID gains and exit conditions. Odometry comes from simulated encoders + IMU, so wheel slip and gear slop make it drift like the real robot. The sim does not give perfect odometry.
+- **auton_cmds:** `drive_time drive_to back_dist back_dist_score face_heading claw_grab claw_release lift_to_rot wait delay`, plus the mechanism functions from `mechanisms.h`.
+- **Alliance side:** pick RED L / RED R / BLUE L / BLUE R with D-pad ← →. Blue swaps the path the same way `run_routine()` does on the robot (`if (is_blue()) use_right = !use_right;`, so BLUE R runs `LEFT_SIDE`).
+
+Updating `routine.cpp`:
+
+- **By hand:** `sh tools/sync-robot-code.sh` (uses a checkout next to this one, or clones the public repo), then commit and push.
+- **Automatically:** `.github/workflows/sync-robot-code.yml` checks hourly. The robot repo is public, so no token is needed.
+
+## Files
+
+| File | What |
+|---|---|
+| `js/drivetrain.js` | Motor, gear slop, wheel friction and tip model |
+| `js/robot.js` | Robot body, claw, guide, cascade, opcontrol |
+| `js/robotmodel.js` | Robot 3D model |
+| `js/field.js` | Field, goals, Toggles, Loaders, scoring |
+| `js/human.js` | Human players and match-load counts |
+| `js/auton.js` | Auton runtime, LemLib port, odometry |
+| `js/cpp.js` | C++ to JS translator for `routine.cpp` |
+| `js/ai.js` | AI robots |
+| `js/main.js` | Game loop, cameras, HUD, menus |
