@@ -17,12 +17,16 @@ jobs:
           ref: main
           path: robot
           sparse-checkout: src/routine.cpp
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
       - name: Commit if the routine changed
         run: |
           cp robot/src/routine.cpp routine.cpp
           rm -rf robot
           if git diff --quiet -- routine.cpp; then echo "No change"; exit 0; fi
+          # This commit won't start the offline build workflow, so rebuild TitaniumSim.html here too.
+          npm ci && npm run build
           git config user.name "routine-sync"
           git config user.email "actions@users.noreply.github.com"
-          git commit -m "Sync auton routine from 4787T-Titanium-Vex-Override" -- routine.cpp
+          git commit -m "Sync auton routine from 4787T-Titanium-Vex-Override" -- routine.cpp TitaniumSim.html
           git push

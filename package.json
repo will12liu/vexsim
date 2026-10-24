@@ -1,0 +1,11 @@
+{
+  "name": "titanium-sim",
+  "private": true,
+  "description": "Builds TitaniumSim.html, the single-file offline copy of the sim. The website itself needs no build.",
+  "scripts": {
+    "build": "node tools/build-offline.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.2"
+  }
+}

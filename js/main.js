@@ -430,8 +430,13 @@ $('loading').remove();
 // Auton routine: routine.cpp is copied from the robot code (tools/sync-robot-code.sh). Load the whole
 // file (constants, helpers and run_routine()) into the editor unless it's already been edited here.
 const routineDefault = $('routine').value;
-fetch('routine.cpp', { cache: 'no-cache' }).then((r) => (r.ok ? r.text() : null)).then((src) => {
+// The single-file build (TitaniumSim.html) carries routine.cpp inside it, since file:// can't fetch.
+const routineSrc = window.ROUTINE_CPP != null ? Promise.resolve(window.ROUTINE_CPP)
+	: fetch('routine.cpp', { cache: 'no-cache' }).then((r) => (r.ok ? r.text() : null));
+routineSrc.then((src) => {
 	if (!src || !/run_routine\s*\(\s*\)/.test(src) || $('routine').value !== routineDefault) return;
 	$('routine').value = src.replace(/^\s*#include.*\n/gm, '').replace(/^\n+/, '');
 }).catch(() => {});
+// Offline app: cache every file so the site opens with no internet once it's been visited / installed.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.ROUTINE_CPP) navigator.serviceWorker.register('sw.js').catch(() => {});
 window.sim = { robot, ais, startGame, showMenu, input, field, world, sim, toField, IN, W, WALL, advance, resetField, startAuton, stopAuton, $, camera, controls, setCam, humans, setSide };   // for debugging in the console

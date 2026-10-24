@@ -2,7 +2,17 @@
 
 3D physics simulator of team 4787T Titanium's VEX V5RC **Override** (2026–27) robot. Runs in the browser (three.js + Rapier), no build step.
 
-Run locally: `python3 -m http.server 8765` in this folder, then open http://localhost:8765. Press **?** in the sim for the full controls.
+Press **?** in the sim for the full controls.
+
+## Running it (works offline)
+
+Everything it needs (three.js, Rapier, the routine) is in this repo, so nothing loads from the internet.
+
+- **One file, no internet, no setup:** `TitaniumSim.html` is the whole sim in one file. Copy it to a laptop and double-click it. (The menu has a download link for it.) Double-clicking `index.html` in a copied folder opens it too.
+- **As an app:** open the website once, then install it. Chrome / Edge: the install icon in the address bar. Safari on Mac: File → Add to Dock. iPad / iPhone: Share → Add to Home Screen. It opens in its own window and keeps working with no internet; when you're online it picks up updates by itself.
+- **Local server:** `python3 -m http.server 8765` in this folder, then open http://localhost:8765.
+
+`TitaniumSim.html` is generated: `npm install && npm run build` (`tools/build-offline.mjs`). The `build-offline` workflow rebuilds it on every push to main, and the routine sync rebuilds it when `routine.cpp` changes. Don't edit it by hand.
 
 ## What it simulates
 
@@ -42,3 +52,6 @@ Updating `routine.cpp`:
 | `js/cpp.js` | C++ to JS translator for `routine.cpp` |
 | `js/ai.js` | AI robots |
 | `js/main.js` | Game loop, cameras, HUD, menus |
+| `vendor/` | three.js 0.160 (MIT) and Rapier 0.12 (Apache-2.0), kept here for offline use |
+| `sw.js`, `manifest.webmanifest`, `icons/` | Installable offline app |
+| `tools/build-offline.mjs` | Builds `TitaniumSim.html` |

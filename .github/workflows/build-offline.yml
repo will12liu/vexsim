@@ -1,0 +1,26 @@
+# Rebuilds TitaniumSim.html (the single-file offline copy) whenever the sim changes on main.
+# Commits made here with GITHUB_TOKEN don't start other workflows, so this can't loop.
+name: Build offline single-file sim
+on:
+  push:
+    branches: [main]
+    paths: ["index.html", "js/**", "vendor/**", "icons/**", "routine.cpp", "tools/build-offline.mjs", "package*.json"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run build
+      - name: Commit if it changed
+        run: |
+          if git diff --quiet -- TitaniumSim.html; then echo "Up to date"; exit 0; fi
+          git config user.name "offline-build"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Rebuild TitaniumSim.html" -- TitaniumSim.html
+          git push

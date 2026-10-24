@@ -4,11 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Titanium Override Sim</title>
+<!-- app:begin (left out of the single-file TitaniumSim.html) -->
+<script>
+// Opened by double-click (file://): browsers block module files there, so open the single-file build instead.
+if (location.protocol === 'file:') location.replace('TitaniumSim.html');
+</script>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<!-- app:end -->
+<meta name="theme-color" content="#0b0e12">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Titanium Sim">
+<!-- Libraries are in vendor/ so the sim runs with no internet. -->
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.0/+esm"
+  "three": "./vendor/three/three.module.min.js",
+  "three/addons/": "./vendor/three/addons/",
+  "@dimforge/rapier3d-compat": "./vendor/rapier/rapier.es.js"
 } }
 </script>
 <style>
@@ -78,6 +93,8 @@
   #menu .opts { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 22px; align-items: end; }
   #menu .opts label.f { flex: 0 0 200px; text-align: left; }
   #menu .hint { margin-top: 18px; color: var(--muted); font-size: 12px; }
+  #menu .hint a { color: var(--text); }
+  #menu #appHint + .hint { margin-top: 6px; }
   body.menu-open #board, body.menu-open #hud, body.menu-open #status, body.menu-open #auton, body.menu-open #btnHelp { display: none; }
   .tag { position: fixed; transform: translate(-50%, -100%); font: 700 11px system-ui; padding: 2px 7px; border-radius: 6px; pointer-events: none; white-space: nowrap; color: #fff; }
   .tag.red { background: rgba(214,40,40,.85); } .tag.blue { background: rgba(30,111,217,.85); }
@@ -163,6 +180,7 @@ void run_routine() {
     <label class="f">AI opponent 2<select id="mStratO2"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker" selected>Stacker (cascade bot, match loads)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
     <button id="mPad" title="For USB controllers the browser does not pick up by itself">Connect controller</button>
   </div>
+  <div class="hint" id="appHint">Works offline. <a href="TitaniumSim.html" download="TitaniumSim.html">Download TitaniumSim.html</a> (one file, double-click to open, no internet), or install it as an app: Chrome/Edge address bar → Install, Safari → Share → Add to Dock / Home Screen.</div>
   <div class="hint">Click a mode, press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>, or use the D-pad + A on a controller. <kbd>Esc</kbd> brings this menu back.</div>
 </div></div>
 <div id="toast"></div>
