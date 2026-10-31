@@ -2,7 +2,7 @@
 // driven through a row of red gears on each side, black V5 motors, nested blue cascade stages
 // rigged with yellow string, a top frame with the distance sensor, the flex-wheel claw on the
 // back (two roller stacks counter-rotating through red gears), the goal guide (two hinged arms
-// with rubber feet) under it, grey Toggle wheels on the front, license plates. Visual only.
+// with rubber feet) under it, a plain Toggle bumper on the front, license plates. Visual only.
 // Robot-local inches: +x = motor forward, +y up, +z right; the claw is at -x.
 import * as THREE from 'three';
 import { IN } from './field.js';
@@ -240,20 +240,12 @@ export function buildRobotMesh(CFG) {
 	}
 	channel(R, 'silver', [hl - 0.55, 1.2, -hw + 1.1], [hl - 0.55, 1.2, hw - 1.1], 2, [-1, 0, 0]);   // front crossbar (the back is open)
 	channel(R, 'silver', [1.8, 0.25, -track + 1.0], [1.8, 0.25, track - 1.0], 5, [0, 1, 0]);        // base plate under the electronics
-	// Bumper on the front: 2" blue channel, the face that hits the Toggle (with the wheels above)
+	// Bumper on the front: 2" blue channel, the face that hits the Toggle (no wheels on this end)
 	channel(R, 'blue', [hl + 0.3, 1.2, -hw + 0.4], [hl + 0.3, 1.2, hw - 0.4], 2, [-1, 0, 0]);
 	// Front crossbar at Toggle height (what hits it; collider in robot.js) on two light uprights.
 	channel(R, 'blue', [hl - 0.5, H - 4.6, -hw + 0.9], [hl - 0.5, H - 4.6, hw - 0.9], 1, [-1, 0, 0]);
 	for (const s of [-1, 1]) channel(R, 'blue', [hl - 0.5, 2.4, s * (hw - 0.9)], [hl - 0.5, H - 4.1, s * (hw - 0.9)], 1, [-1, 0, 0]);
 	for (const s of [-1, 1]) rod(R, M.steel, [hl - 0.5, H - 4.6, s * (hw - 0.9)], [cx0Top(), H - 0.6, s * (hw - 1.3)], 0.09);   // braces back to the tower top
-	// ---- Toggle wheels (front left corner): free grey wheels up a diagonal channel ---------------
-	const tw0 = [hl - 0.4, 3.0, -hw + 1.0], tw1 = [hl + 0.9, H - 4.2, -hw + 1.0];
-	channel(R, 'blue', tw0, tw1, 1, [0, 0, 1]);
-	for (let k = 0; k < 4; k++) {
-		const f = (k + 0.5) / 4, x = tw0[0] + (tw1[0] - tw0[0]) * f + 1.0, y = tw0[1] + (tw1[1] - tw0[1]) * f;
-		rod(R, M.steel, [x - 1.0, y, -hw + 1.0], [x, y, -hw - 0.9], 0.08);
-		flexWheel(R, 1.35, 0.9, x, y, -hw - 0.25, 'z');
-	}
 
 	// ---- Electronics: Brain, battery, radio, cables -----------------------------------------------
 	const brain = new THREE.Group();

@@ -1,7 +1,7 @@
 // The Titanium robot (4787T): drivetrain (drivetrain.js), cascade lift, the flex-wheel claw on the
 // back with the goal guide under it, and a port of src/opcontrol.cpp + src/mechanisms.cpp from
 // will12liu/4787T-Titanium-Vex-Override. Robot-local frame (inches): +x = motor forward (the
-// Toggle wheels end), +y up, +z right. The claw is on the back (-x); the driver drives claw first
+// Toggle bumper end), +y up, +z right. The claw is on the back (-x); the driver drives claw first
 // (opcontrol starts with drive_direction = -1).
 import * as THREE from 'three';
 import { IN, W, PIN_H, CUP_H, MID, GROUP, groups, toField, LOADER } from './field.js';
