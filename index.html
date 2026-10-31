@@ -97,6 +97,14 @@ if (location.protocol === 'file:') location.replace('TitaniumSim.html');
   .mode:hover, .mode.sel { transform: translateY(-3px); border-color: #f5c518; background: rgba(30,35,44,.95); }
   .mode b { display: block; font-size: 20px; margin-bottom: 6px; } .mode small { color: var(--muted); font-size: 13px; line-height: 1.45; display: block; }
   .mode .k { float: right; color: var(--muted); font: 700 12px ui-monospace, monospace; border: 1px solid #48525f; border-radius: 6px; padding: 1px 7px; }
+  .robots { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 0 0 16px; }
+  .robots .rlabel { flex-basis: 100%; color: var(--muted); font: 700 11px system-ui; letter-spacing: .2em; }
+  .rcard { flex: 0 1 300px; text-align: left; padding: 11px 14px; border-radius: 12px; background: rgba(20,24,31,.7); border: 1px solid rgba(255,255,255,.1); transition: border-color .12s, background .12s; }
+  .rcard b { display: block; font-size: 15px; } .rcard small { color: var(--muted); font-size: 12px; line-height: 1.4; display: block; margin-top: 2px; }
+  .rcard:hover { border-color: rgba(245,197,24,.6); }
+  .rcard.on { border-color: #f5c518; background: rgba(40,36,18,.9); }
+  .rcard.on b::after { content: ' ✓'; color: #f5c518; }
+  .rcard.soon { opacity: .55; border-style: dashed; cursor: default; }
   #menu .opts { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 22px; align-items: end; }
   #menu .opts label.f { flex: 0 0 200px; text-align: left; }
   #menu .hint { margin-top: 18px; color: var(--muted); font-size: 12px; }
@@ -170,6 +178,7 @@ void run_routine() {
   <div class="kicker">VEX V5RC · OVERRIDE 2026–27</div>
   <h1>TITANIUM <span>SIM</span></h1>
   <div class="sub">3D physics simulator of our robot</div>
+  <div class="robots" id="robotPick"><div class="rlabel">ROBOT</div></div>
   <div class="modes">
     <button class="mode" data-game="free"><span class="k">1</span><b>Free Drive</b><small>Just you on the field. No timer. Practice slow grabs, match loads and smooth driving. D-pad ↓ runs your auton.</small></button>
     <button class="mode" data-game="solo"><span class="k">2</span><b>Solo Match</b><small>A full match by yourself: 15 s auton (your routine) then 1:45 driver control.</small></button>

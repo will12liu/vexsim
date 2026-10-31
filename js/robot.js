@@ -4,7 +4,7 @@
 // Toggle bumper end), +y up, +z right. The claw is on the back (-x); the driver drives claw first
 // (opcontrol starts with drive_direction = -1).
 import * as THREE from 'three';
-import { IN, W, PIN_H, CUP_H, MID, GROUP, groups, toField, LOADER } from './field.js';
+import { IN, W, PIN_H, CUP_H, MID, GROUP, groups, toField, LOADER, TOGGLE } from './field.js';
 import { buildRobotMesh } from './robotmodel.js';
 import { Drivetrain } from './drivetrain.js';
 
@@ -42,6 +42,10 @@ CFG.clawX = -CFG.length / 2 + CFG.clawIn;   // robot-local x of a held stack's c
 // its base slides into the V and stops with the goal right under the claw. It also catches pins that
 // get knocked over on the floor: one stuck in the V blocks the claw (and the Loader) until it's shaken out.
 CFG.guide = { y0: 1.1, y1: 3.0, root: [CFG.clawX + 0.7, 2.2], tip: [-CFG.length / 2 - 0.35, 5.6], t: 0.5 };
+// Toggle arms (front, from the photos): hinged blue arms with a black rubber puck under each tip. The
+// pucks sit at the Toggle's axle height, above the 11.5" wall, and reach past the bumper, so they are
+// what hits the Toggle (square on its face) and the bumper never touches the wall.
+CFG.puck = { x: CFG.length / 2 + 1.7, z: CFG.width / 2 + 0.9, y: TOGGLE.axisH, r: 0.75, h: 1.0 };
 
 const DEG = Math.PI / 180;
 // Claw mode colours (light bar on the claw + HUD): R1 grab running, stopped (closed), R2 release running (open).
@@ -102,6 +106,12 @@ export class Robot {
 			const foot = R.ColliderDesc.cylinder(1.4 * IN, 0.4 * IN).setTranslation(x1 * IN, 1.9 * IN, s * z1 * IN)
 				.setFriction(0.9).setDensity(0).setCollisionGroups(groups(GROUP.robot, 0xffff));
 			this.colliders.push(world.createCollider(foot, this.body));
+		}
+		// Toggle pucks: rubber, grippy.
+		for (const s of [-1, 1]) {
+			const pk = CFG.puck;
+			this.colliders.push(world.createCollider(R.ColliderDesc.cylinder((pk.h / 2) * IN, pk.r * IN).setTranslation(pk.x * IN, pk.y * IN, s * pk.z * IN)
+				.setFriction(0.9).setDensity(0).setCollisionGroups(groups(GROUP.robot, 0xffff)), this.body));
 		}
 		// The claw: two roller stacks + the brace behind the cup. They ride up with the lift
 		// (moved every step) and only touch pins, cups and robots.
@@ -165,6 +175,8 @@ export class Robot {
 	fwd() { return new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat()); }
 	liftIn() { return clamp(this.liftDeg * CFG.liftInPerDeg, 0, CFG.liftMaxIn + 0.5); }
 	tipped() { return this.drive.tipped !== 0; }
+	// How far the front reaches past the centre (inches): the Toggle pucks.
+	frontReach() { return CFG.puck.x + CFG.puck.r; }
 
 	// Robot footprint touches the Midfield?
 	inMidfield() {
@@ -628,6 +640,27 @@ export class Robot {
 		else if (!estop && c.L2) { this.liftRelease(); o.preset = false; this.cascadeMove(-85); }
 		else if (estop || !o.preset) { this.liftRelease(); o.preset = false; this.cascadeMove(0); }
 		o.prev = { ...c };
+	}
+
+	// ---- HUD / controls page (each robot design has its own) ---------------------------------
+	// [mode for the colour, text] of the claw pill: green = grab running, white = stopped, amber = release.
+	clawHud() {
+		return { GRAB: ['grab', 'CLAW R1 GRAB · closed, spinning in'], RELEASE: ['release', 'CLAW R2 OPEN · spinning out'] }[this.clawMode] || ['stopped', 'CLAW CLOSED · stopped'];
+	}
+	driveName() { return this.op.inverse < 0 ? 'claw first' : 'claw back'; }
+	dirTag() { return this.op.inverse > 0 ? ' · CLAW BACK' : ''; }
+	heldText(name) {
+		return this.claw ? name(this.claw) + (this.clawExtraPiece ? ' + ' + name(this.clawExtraPiece) : '') : '—';
+	}
+	// Mechanism rows of the controls page: [action, V5, Xbox, keyboard, note].
+	static controlRows(k, x) {
+		return [
+			['Claw grab spin + intake height', k('R1'), k('RB'), k('E'), 'Toggle; also sends the cascade to -70 (2" up), like opcontrol.cpp. Drive claw first into a standing stack SLOWLY (under ~6 in/s): the rollers pull it in and the spin stops by itself. Faster and you knock it over. Something stuck in the guide (a knocked-over pin) blocks the claw'],
+			['Claw release spin', k('R2') + ' / ' + k('A'), k('RT') + ' / ' + k(x.A), k('Q') + ' / ' + k('F'), 'Toggle. Pushes the stack out the back (onto a goal if it\'s right over one). Lowering the stack onto a goal also lets go'],
+			['Take a match load', k('R1'), k('RB'), k('E'), 'Cascade at R1 height (it must fit under the tube), back in square to the wall, slow. Your human player drops loads in the top (10 Cups + 10 Pins per alliance, driver period only)'],
+			['Hit a Toggle', 'Drive', 'Drive', 'Drive', 'The black rubber pucks on the front arms hit it at its height. One hit = one face: back off and hit again'],
+			['Flip drive direction', k('↑'), 'D-pad ↑', k('↑'), 'Starts claw first (stick up drives claw first), like opcontrol.cpp; turning unchanged'],
+		];
 	}
 
 	// After a practice auton / macro (claw_driver_reset(), preset cleared), like opcontrol.cpp.

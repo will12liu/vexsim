@@ -13,10 +13,13 @@ const wrap180 = (a) => ((((a + 180) % 360) + 360) % 360) - 180;
 // robot-config.cpp: lateral kP 13 kD 3, angular kP 2 kD 7; exits 1 / 0 ms small, 3 / 500 ms large.
 const LATERAL = { kP: 13, kI: 0, kD: 3, small: 1, smallT: 0, large: 3, largeT: 500 };
 const ANGULAR = { kP: 2, kI: 0, kD: 7, small: 1, smallT: 0, large: 3, largeT: 500 };
-const DRIVE_TIMEOUT_MS = 2000, TURN_TIMEOUT_MS = 1000, STRAIGHT_KP = 3, AUTON_BUDGET_MS = 14800;
+// auton_cmds.h: drive power 90, and times tuned at power 100 stretched to match (rounded up to 10 ms).
+const AUTON_DRIVE_POWER = 90;
+const auton_move_time = (ms) => Math.trunc((ms * 100 + AUTON_DRIVE_POWER * 10 - 1) / (AUTON_DRIVE_POWER * 10)) * 10;
+const DRIVE_TIMEOUT_MS = auton_move_time(2000), TURN_TIMEOUT_MS = auton_move_time(1000), STRAIGHT_KP = 3, AUTON_BUDGET_MS = 14800;
 
 // Commands that block (the translator wraps calls to them in yield*).
-export const BLOCKING = ['wait', 'delay', 'drive_time', 'drive_to', 'back_dist', 'back_dist_score', 'face_heading', 'claw_grab', 'claw_release',
+export const BLOCKING = ['wait', 'delay', 'drive_time', 'drive_to', 'back_dist', 'back_dist_score', 'forward_dist', 'forward_dist_score', 'face_heading', 'claw_grab', 'claw_release',
 	'chassis.moveToPoint', 'chassis.turnToHeading', 'chassis.turnToPoint', 'chassis.moveToPose', 'chassis.swingToHeading', 'chassis.waitUntilDone', 'chassis.waitUntil',
 	// older sim commands
 	'move', 'turn', 'turn_to', 'lift_wait', 'claw_in', 'claw_out', 'claw_up', 'claw_drop', 'claw_drop_up', 'score',
@@ -185,21 +188,21 @@ export function makeAuton(robot, sel /* { side, color } */, log, opts = {}) {
 		else return;
 		if (Math.max(dx, dy) < 3) return;
 		const err = ((h - q.theta + 540) % 360 + 360) % 360 - 180;
-		if (Math.abs(err) > 1.5 && !stopped()) yield* chassis.turnToHeading(h, TURN_TIMEOUT_MS, { maxSpeed: 100 }, false);
+		if (Math.abs(err) > 1.5 && !stopped()) yield* chassis.turnToHeading(h, TURN_TIMEOUT_MS, { maxSpeed: AUTON_DRIVE_POWER }, false);
 	}
-	function* drive_to(x, y, speed = 100, timeout = DRIVE_TIMEOUT_MS, align = true) {
+	function* drive_to(x, y, speed = AUTON_DRIVE_POWER, timeout = DRIVE_TIMEOUT_MS, align = true) {
 		if (!odomOk('drive_to')) return;
 		const t = { x, y };
 		if (align) yield* alignDrive(t);
-		yield* chassis.moveToPoint(t.x, t.y, timeout, { forwards: true, maxSpeed: clamp(speed, 0, 127) }, false);
+		yield* chassis.moveToPoint(t.x, t.y, timeout, { forwards: true, maxSpeed: clamp(speed, 0, AUTON_DRIVE_POWER) }, false);
 	}
-	function* back_dist(inches, speed = 100, timeout = DRIVE_TIMEOUT_MS) {
+	function* back_dist(inches, speed = AUTON_DRIVE_POWER, timeout = DRIVE_TIMEOUT_MS) {
 		if (!odomOk('back_dist')) return;
 		const p0 = getPose(), head = robot.imuDeg, t0 = millis();
 		while (millis() - t0 < timeout && !stopped()) {
 			const q = getPose(), rem = inches - Math.hypot(q.x - p0.x, q.y - p0.y);
 			if (rem <= 0.5) break;
-			let pw = clamp(speed, 0, 127);
+			let pw = clamp(speed, 0, AUTON_DRIVE_POWER);
 			if (rem < 6) pw = Math.max(35, Math.trunc((pw * rem) / 6));
 			const turn = Math.trunc(clamp(STRAIGHT_KP * (head - robot.imuDeg), -40, 40));
 			setLR(-pw + turn, -pw - turn);
@@ -207,29 +210,53 @@ export function makeAuton(robot, sel /* { side, color } */, log, opts = {}) {
 		}
 		stopDrive();
 	}
-	function* back_dist_score(inches, speed, timeout, slowdown, minSpeed) {
-		if (!odomOk('back_dist_score')) return 'FAILED';
-		const p0 = getPose(), rad = p0.theta * DEG, head = robot.imuDeg, maxP = clamp(speed, 0, 127), minP = clamp(minSpeed, 0, maxP);
+	// drive_dist_score(): back (or forward) toward a goal, easing off over the last `slowdown` inches.
+	// A stall near the goal (it's touching) counts separately from a timeout.
+	function* driveDistScore(inches, speed, timeout, slowdown, minSpeed, fwd) {
+		if (!odomOk(fwd ? 'forward_dist_score' : 'back_dist_score')) return 'FAILED';
+		const dir = fwd ? 1 : -1;
+		const p0 = getPose(), rad = p0.theta * DEG, head = robot.imuDeg, maxP = clamp(speed, 0, AUTON_DRIVE_POWER), minP = clamp(minSpeed, 0, maxP);
 		const t0 = millis();
 		let arrived = false, stalled = false, lastD = 0, lastT = t0;
 		while (millis() - t0 < timeout && !stopped()) {
-			const q = getPose(), dist = -((q.x - p0.x) * Math.sin(rad) + (q.y - p0.y) * Math.cos(rad)), rem = inches - dist;
+			const q = getPose(), dist = dir * ((q.x - p0.x) * Math.sin(rad) + (q.y - p0.y) * Math.cos(rad)), rem = inches - dist;
 			if (rem <= 0.5) { arrived = true; break; }
 			if (dist >= lastD + 0.1) { lastD = dist; lastT = millis(); }
 			if (rem <= slowdown && millis() - lastT >= 250) { stalled = true; break; }
 			let pw = maxP;
 			if (slowdown > 0 && rem < slowdown) pw = minP + Math.trunc(((maxP - minP) * rem) / slowdown);
 			const turn = Math.trunc(clamp(STRAIGHT_KP * (head - robot.imuDeg), -40, 40));
-			setLR(-pw + turn, -pw - turn);
+			setLR(dir * pw + turn, dir * pw - turn);
 			yield* delay(10);
 		}
 		stopDrive();
-		if (!arrived && !stopped()) status(stalled ? 'score stalled' : 'reverse timeout');
+		if (!arrived && !stopped()) status(stalled ? 'score stalled' : fwd ? 'forward timeout' : 'reverse timeout');
 		if (stopped()) return 'FAILED';
 		return arrived ? 'REACHED' : stalled ? 'STALLED_NEAR_GOAL' : 'FAILED';
 	}
-	function* face_heading(h, speed = 100, timeout = TURN_TIMEOUT_MS) {
-		if (odomOk('face_heading')) yield* chassis.turnToHeading(h, timeout, { maxSpeed: clamp(speed, 0, 127) }, false);
+	const back_dist_score = (...a) => driveDistScore(...a, false);
+	const forward_dist_score = (...a) => driveDistScore(...a, true);
+	// forward_dist(): a measured distance forward holding the heading. False on stop / timeout.
+	function* forward_dist(inches, speed = AUTON_DRIVE_POWER, timeout = DRIVE_TIMEOUT_MS) {
+		if (!odomOk('forward_dist')) return false;
+		const p0 = getPose(), rad = p0.theta * DEG, head = robot.imuDeg, pw = clamp(speed, 0, AUTON_DRIVE_POWER), t0 = millis();
+		let arrived = false;
+		while (millis() - t0 < timeout && !stopped()) {
+			const q = getPose();
+			if (inches - ((q.x - p0.x) * Math.sin(rad) + (q.y - p0.y) * Math.cos(rad)) <= 0.5) { arrived = true; break; }
+			const turn = Math.trunc(clamp(STRAIGHT_KP * (head - robot.imuDeg), -40, 40));
+			setLR(pw + turn, pw - turn);
+			yield* delay(10);
+		}
+		stopDrive();
+		if (!arrived && !stopped()) auton_fail('forward timeout');
+		return arrived && !stopped();
+	}
+	function auton_fail(msg) { if (!s.failure) { s.failure = msg; log?.(`FAILED: ${msg}`); } status(msg); }
+	// TurnDirection AUTO / RIGHT / LEFT -> LemLib's AngularDirection.
+	function* face_heading(h, speed = AUTON_DRIVE_POWER, timeout = TURN_TIMEOUT_MS, direction = 'AUTO') {
+		const d = { RIGHT: 'CW_CLOCKWISE', LEFT: 'CCW_COUNTERCLOCKWISE' }[direction] || 'AUTO';
+		if (odomOk('face_heading')) yield* chassis.turnToHeading(h, timeout, { direction: d, maxSpeed: clamp(speed, 0, AUTON_DRIVE_POWER) }, false);
 	}
 	function* claw_grab(ms = 0) { status('claw_grab'); if (stopped()) return; robot.clawGrabToggle(); if (ms <= 0) return; yield* wait(ms); robot.clawDriverReset(); }
 	function* claw_release(ms = 0) { status('claw_release'); if (stopped()) return; robot.clawReleaseToggle(); if (ms <= 0) return; yield* wait(ms); robot.clawDriverReset(); }
@@ -295,7 +322,8 @@ export function makeAuton(robot, sel /* { side, color } */, log, opts = {}) {
 	const api = {
 		// auton_cmds.h
 		set_pose: (x, y, h) => { if (odomOk('set_pose')) setPose(x, y, h); },
-		drive_time, drive_to, back_dist, back_dist_score, face_heading, wait, delay, claw_grab, claw_release,
+		drive_time, drive_to, back_dist, back_dist_score, forward_dist, forward_dist_score, face_heading, wait, delay, claw_grab, claw_release,
+		auton_fail, auton_failure: () => s.failure || '', AUTON_DRIVE_POWER, auton_move_time,
 		lift_to_rot: (rot) => { status('lift_to_rot'); if (!stopped()) robot.liftTo(rot); },
 		on_right: () => sel.side === 'right', on_left: () => sel.side !== 'right',
 		is_blue: () => sel.color === 'blue', is_red: () => sel.color !== 'blue',
@@ -338,8 +366,14 @@ export function makeAuton(robot, sel /* { side, color } */, log, opts = {}) {
 	return {
 		state: s, pose: getPose,
 		compile(src) {
-			const { code } = translateCpp(src, BLOCKING);
+			const { code, warnings } = translateCpp(src, BLOCKING);
 			const names = Object.keys(api);
+			// Constants the routine uses but nothing defines (not in routine.cpp or the sim's headers):
+			// it would not compile on the robot either. The run stops with an error when it gets there.
+			const defined = new Set([...names, ...[...code.matchAll(/\blet\s+([A-Za-z_]\w*)/g)].map((m) => m[1]), ...[...code.matchAll(/function\*\s+(\w+)/g)].map((m) => m[1])]);
+			const undef = [...new Set([...code.replace(/(["'])(?:\\.|(?!\1).)*\1/g, '').matchAll(/(?<![.\w])([A-Z][A-Z0-9_]{2,})\b/g)].map((m) => m[1]))].filter((n) => !defined.has(n) && !(n in globalThis));
+			for (const w of warnings) log?.('routine.cpp: ' + w);
+			if (undef.length) log?.(`routine.cpp: ${undef.join(', ')} ${undef.length > 1 ? 'are' : 'is'} used but never defined (the robot won't compile this either). The run stops there.`);
 			const factory = new Function(...names, `return function* () {\n${code}\n};`);
 			gen = factory(...names.map((n) => api[n]))();
 			return gen;
@@ -349,8 +383,12 @@ export function makeAuton(robot, sel /* { side, color } */, log, opts = {}) {
 			odomStep();
 			if (s.motion) { const r = s.motion.next(); if (r.done) s.motion = null; }
 			if (!gen) return true;
-			const r = gen.next();
-			return r.done;
+			try { return gen.next().done; }
+			catch (e) {   // e.g. a constant routine.cpp never defines: stop the run, don't stop the sim
+				log?.(`Routine error at "${s.lastStep}": ${e.message}`);
+				gen = null; stopDrive();
+				return true;
+			}
 		},
 		estop() { s.estop = true; robot.mechStopAll(); stopDrive(); },
 		stop() { s.stopped = true; },

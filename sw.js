@@ -1,14 +1,14 @@
 // Offline cache for the sim (the installable app and the website both use it).
 // Online: always fetch fresh files (so updates show up) and keep a copy.
 // Offline / slow network: serve the copy. Every file is cached on the first visit.
-const CACHE = 'titanium-sim-v1';
+const CACHE = 'titanium-sim-v2';
 const FILES = [
 	'./', 'index.html', 'routine.cpp', 'manifest.webmanifest', 'TitaniumSim.html',
 	'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',
 	'vendor/three/three.module.min.js', 'vendor/three/addons/controls/OrbitControls.js',
 	'vendor/three/addons/environments/RoomEnvironment.js', 'vendor/rapier/rapier.es.js',
 	'js/ai.js', 'js/auton.js', 'js/cpp.js', 'js/drivetrain.js', 'js/field.js', 'js/human.js',
-	'js/input.js', 'js/main.js', 'js/robot.js', 'js/robotmodel.js', 'js/switchhid.js', 'js/v5serial.js',
+	'js/input.js', 'js/main.js', 'js/robot.js', 'js/robots.js', 'js/intakebot.js', 'js/intakemodel.js', 'js/robotmodel.js', 'js/switchhid.js', 'js/v5serial.js',
 ];
 const TIMEOUT_MS = 3500;   // flaky plane / venue wifi: don't wait on it, use the copy
 // Hosts like Cloudflare Pages redirect index.html -> / ; a redirected response can't answer a page load, so store a plain copy.

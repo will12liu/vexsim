@@ -133,6 +133,8 @@ export class AIRobot extends Robot {
 		this.skill = 0.8;
 	}
 
+	frontReach() { return HL; }
+
 	// Solid body (no claw mouth): the AI's manipulators reach out past the bumper.
 	build() {
 		const { R, world } = this;

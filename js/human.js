@@ -130,6 +130,7 @@ export class HumanPlayers {
 		const r = robot.pos(), L = this.field.loaders.find((q) => q.mine && Math.hypot(r.x / IN - q.px, -r.z / IN - q.fy) < 30);
 		if (!L) return '';
 		if (!L.ready) return L.stacks.length ? 'Loader: dropping' : 'Loader: empty';
+		if (robot.loaderHint) return `Loader: ${L.stacks.length} in · ${robot.loaderHint()}`;
 		const high = robot.liftIn() + 9.4 > LOADER.slotTop + 0.2;
 		return `Loader: ${L.stacks.length} in · ${high ? 'cascade too high for the slot' : 'R1, back in square, SLOW'}`;
 	}

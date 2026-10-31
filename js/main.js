@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Field, TOGGLES, TOGGLE, IN, W, WALL, toField, clampVelocities } from './field.js';
-import { Robot, CFG } from './robot.js';
+import { ROBOTS, DEFAULT_ROBOT } from './robots.js';
 import { AIRobot, STRATEGIES } from './ai.js';
 import { Input } from './input.js';
 import { HumanPlayers } from './human.js';
@@ -57,7 +57,10 @@ const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 world.timestep = DT;
 if (world.integrationParameters) world.integrationParameters.numSolverIterations = 8;
 const field = new Field(RAPIER, world, scene);
-const robot = new Robot(RAPIER, world, scene, field);
+// The robot you drive: picked on the title menu (robots.js), remembered on this device.
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+let robotId = ROBOTS[store.get('titanium.robot')] ? store.get('titanium.robot') : DEFAULT_ROBOT;
+let robot = new ROBOTS[robotId].cls(RAPIER, world, scene, field);
 const input = new Input();
 const humans = new HumanPlayers(scene, field, (m) => toast(m));
 const humanOpts = () => { humans.load = $('mHuman').value; humans.loader = $('mLoader').value; humans.unlimited = $('mLoads').value === 'unlimited'; };
@@ -74,17 +77,46 @@ function toast(msg, sub) {
 	t.innerHTML = msg + (sub ? `<small>${sub}</small>` : ''); t.classList.add('show');
 	clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), sub ? 2200 : 1200);
 }
-robot.flash = (msg, sub) => { toast(msg, sub); input.rumble(msg === 'CLAW FIRST' ? 300 : msg === 'TIPPED OVER' ? 700 : 90); };
+const hookFlash = (r) => { r.flash = (msg, sub) => { toast(msg, sub); input.rumble(msg === 'CLAW FIRST' || msg === 'INTAKE FIRST' ? 300 : msg === 'TIPPED OVER' ? 700 : 90); }; };
+hookFlash(robot);
+// Swap the robot: take the old one off the field (letting go of what it holds) and build the new one.
+function setRobot(id) {
+	if (!ROBOTS[id] || id === robotId) return;
+	stopAuton();
+	for (const p of [robot.hopper, robot.clawExtraPiece, robot.claw]) if (p && field.has(p)) robot.releasePin(p, false);
+	world.removeRigidBody(robot.body); scene.remove(robot.mesh);
+	robotId = id; store.set('titanium.robot', id);
+	robot = new ROBOTS[id].cls(RAPIER, world, scene, field);
+	hookFlash(robot);
+	window.sim.robot = robot;
+	resetField();
+	renderRobotPick();
+}
+function renderRobotPick() {
+	const el = $('robotPick');
+	el.querySelectorAll('.rcard').forEach((c) => c.remove());
+	for (const [id, r] of Object.entries(ROBOTS)) {
+		const b = document.createElement('button');
+		b.className = 'rcard' + (id === robotId ? ' on' : ''); b.dataset.robot = id;
+		b.innerHTML = `<b>${r.name}</b><small>${r.sub}</small>`;
+		b.onclick = () => setRobot(id);
+		el.appendChild(b);
+	}
+	const soon = document.createElement('div');
+	soon.className = 'rcard soon';
+	soon.innerHTML = '<b>New robot (being built)</b><small>Not in the sim yet: add it once there are photos and code</small>';
+	el.appendChild(soon);
+}
 function log(msg) {
 	const el = $('log');
 	el.textContent = (msg + '\n' + el.textContent).slice(0, 3000);
 }
 
-// Robot centred on the chosen Toggle, front facing it, 0.7" off it (routine.cpp: WALL_Y = 0.7).
+// Robot centred on the chosen Toggle, front (pucks / bumper) facing it, 0.7" off it (routine.cpp: WALL_Y = 0.7).
 function placeAt(r, quad) {
 	const t = TOGGLES.find((x) => x.quad === quad);
 	const face = WALL - TOGGLE.inset - TOGGLE.face / (2 * Math.sqrt(3));
-	const d = face - 0.7 - CFG.length / 2;
+	const d = face - 0.7 - r.frontReach();
 	r.place(-t.n[0] * d, -t.n[1] * d, (Math.atan2(-t.n[1], -t.n[0]) * 180) / Math.PI);
 	r.loadPreload();
 }
@@ -268,10 +300,7 @@ function renderControls() {
 		['Turn', 'Right stick ↔', 'Right stick ↔', k('A', 'D')],
 		['Lift up (cascade)', k('L1'), k('LB'), k('R')],
 		['Lift down', k('L2'), k('LT'), k('G')],
-		['Claw grab spin + intake height', k('R1'), k('RB'), k('E'), 'Toggle; also sends the cascade to -70 (2" up), like opcontrol.cpp. Drive claw first into a standing stack SLOWLY (under ~6 in/s): the rollers pull it in and the spin stops by itself. Faster and you knock it over. Something stuck in the guide (a knocked-over pin) blocks the claw'],
-		['Claw release spin', k('R2') + ' / ' + k('A'), k('RT') + ' / ' + k(x.A), k('Q') + ' / ' + k('F'), 'Toggle. Pushes the stack out the back (onto a goal if it\'s right over one). Lowering the stack onto a goal also lets go'],
-		['Take a match load', k('R1'), k('RB'), k('E'), 'Cascade at R1 height (it must fit under the tube), back in square to the wall, slow. Your human player drops loads in the top (10 Cups + 10 Pins per alliance, driver period only)'],
-		['Flip drive direction', k('↑'), 'D-pad ↑', k('↑'), 'Starts claw first (stick up drives claw first), like opcontrol.cpp; turning unchanged'],
+		...robot.constructor.controlRows(k, x),
 		['Auton side', k('←') + ' ' + k('→'), 'D-pad ← →', k('←') + ' ' + k('→'), 'Like the Brain\'s RED L / RED R / BLUE L / BLUE R buttons. Blue swaps the path in routine.cpp'],
 		['Practice auton (15 s cutoff)', k('↓'), 'D-pad ↓', k('↓'), 'Free drive only, like autonomous_match_sim()'],
 		['Run the routine as a macro', 'Hold ' + k('B') + ', press ' + k('Y'), 'Hold ' + k(x.B) + ', press ' + k(x.Y), 'Hold ' + k('B') + ', press ' + k('Y')],
@@ -367,7 +396,7 @@ function steadyScore(sc) {
 function updateHud(score) {
 	const label = { practice: 'PRACTICE', auton: 'AUTONOMOUS', driver: 'DRIVER', ended: 'MATCH OVER' }[sim.mode];
 	const run = sim.auton && sim.autonKind !== 'match' ? (sim.autonKind === 'macro' ? ' · MACRO' : ' · AUTON TEST') : '';
-	$('mode').textContent = label + run + (robot.op.inverse > 0 ? ' · CLAW BACK' : '');
+	$('mode').textContent = label + run + robot.dirTag();
 	const pc = sim.autonKind === 'practice' ? AUTON_S - sim.autonT : null;
 	$('clock').textContent = pc != null ? fmtClock(Math.max(0, pc)) : sim.mode === 'practice' ? '--:--' : fmtClock(Math.max(0, sim.clock));
 	const s = sim.final || steadyScore(score);
@@ -383,13 +412,13 @@ function updateHud(score) {
 		return `<span class="tg own-${own}" title="${name} Toggle: yellow pins in this quarter score for ${own === 'yellow' ? 'nobody' : own}">${name}<b>${own === 'yellow' ? '—' : own.toUpperCase()}</b></span>`;
 	}).join('');
 	$('detail').textContent = `Pins placed ${s.placedPins} · halves R${s.halves.red} B${s.halves.blue} Y→R${s.halves.yellowRed} Y→B${s.halves.yellowBlue} `;
-	const cs = { GRAB: ['grab', 'R1 GRAB · closed, spinning in'], RELEASE: ['release', 'R2 OPEN · spinning out'], STOPPED: ['stopped', 'CLOSED · stopped'] }[robot.clawMode] || ['stopped', 'CLOSED'];
-	if ($('clawState').dataset.mode !== cs[0]) { $('clawState').dataset.mode = cs[0]; $('clawState').textContent = 'CLAW ' + cs[1]; }
-	const held = robot.claw ? (robot.claw.kind === 'cup' ? 'cup' : robot.claw.top + '/' + robot.claw.bottom + ' pin') + (robot.clawExtraPiece ? ' + ' + (robot.clawExtraPiece.kind === 'cup' ? 'cup' : robot.clawExtraPiece.top + ' pin') : '') : '—';
+	const cs = robot.clawHud();
+	if ($('clawState').dataset.mode !== cs[0] || $('clawState').textContent !== cs[1]) { $('clawState').dataset.mode = cs[0]; $('clawState').textContent = cs[1]; }
+	const held = robot.heldText((o) => (o.kind === 'cup' ? 'cup' : o.top + '/' + o.bottom + ' pin'));
 	const temp = robot.drive.maxTemp(), hot = temp >= 55 ? ` (HOT: ${temp >= 60 ? 'quarter' : 'half'} power)` : '';
 	const tip = robot.tipped() ? 'TIPPED · ' : Math.abs(robot.drive.pitch.th) > 0.03 ? 'WHEELIE · ' : '';
 	$('robot').textContent = `${tip}Lift ${robot.liftIn().toFixed(1)}" (${robot.liftPos().toFixed(0)}) · Holding ${held} · ` +
-		`${humans.status(robot) ? humans.status(robot) + ' · ' : ''}Drive ${robot.op.inverse < 0 ? 'claw first' : 'claw back'} ${robot.brake} · motors ${temp.toFixed(0)}°C${hot} · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
+		`${humans.status(robot) ? humans.status(robot) + ' · ' : ''}Drive ${robot.driveName()} ${robot.brake} · motors ${temp.toFixed(0)}°C${hot} · Midfield ${robot.inMidfield() ? 'YES' : 'no'}`;
 	$('source').textContent = input.source;
 }
 
@@ -489,6 +518,7 @@ function updateTags() {
 	});
 }
 markSide();
+renderRobotPick();
 requestAnimationFrame(tick);
 $('loading').remove();
 // Auton routine: routine.cpp is copied from the robot code (tools/sync-robot-code.sh). Load the whole

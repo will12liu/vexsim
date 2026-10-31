@@ -1,8 +1,8 @@
 // Visual model of 4787T, from the team's photos: silver aluminium drive with four 3.25" omnis
 // driven through a row of red gears on each side, black V5 motors, nested blue cascade stages
 // rigged with yellow string, a top frame with the distance sensor, the flex-wheel claw on the
-// back (two roller stacks counter-rotating through red gears), the goal guide (two hinged arms
-// with rubber feet) under it, a plain Toggle bumper on the front, license plates. Visual only.
+// back (two roller stacks counter-rotating through red gears), the goal guide (a V of two arms)
+// under it, hinged Toggle arms with black rubber pucks on the front, license plates. Visual only.
 // Robot-local inches: +x = motor forward, +y up, +z right; the claw is at -x.
 import * as THREE from 'three';
 import { IN } from './field.js';
@@ -246,6 +246,20 @@ export function buildRobotMesh(CFG) {
 	channel(R, 'blue', [hl - 0.5, H - 4.6, -hw + 0.9], [hl - 0.5, H - 4.6, hw - 0.9], 1, [-1, 0, 0]);
 	for (const s of [-1, 1]) channel(R, 'blue', [hl - 0.5, 2.4, s * (hw - 0.9)], [hl - 0.5, H - 4.1, s * (hw - 0.9)], 1, [-1, 0, 0]);
 	for (const s of [-1, 1]) rod(R, M.steel, [hl - 0.5, H - 4.6, s * (hw - 0.9)], [cx0Top(), H - 0.6, s * (hw - 1.3)], 0.09);   // braces back to the tower top
+	// ---- Toggle arms (front): a hinged blue arm on each front upright, rubber band holding it out,
+	// black rubber puck under the tip at Toggle height (CFG.puck; the pucks are what hit it) -------
+	const pk = CFG.puck, armY = pk.y + pk.h / 2 + 0.75;
+	for (const s of [-1, 1]) {
+		const root = [hl - 0.5, s * (hw - 0.9)], tip = [pk.x, s * pk.z];
+		channel(R, 'blue', [hl - 0.5, armY - 2.2, s * (hw - 0.4)], [hl - 0.5, armY + 0.4, s * (hw - 0.4)], 1, [-1, 0, 0]);   // hinge bracket on the upright
+		channel(R, 'blue', [root[0], armY, root[1]], [tip[0] + 0.5, armY, tip[1]], 1, [0, 1, 0]);
+		rod(R, M.steel, [root[0], armY - 0.8, root[1]], [root[0], armY + 0.8, root[1]], 0.1);   // shoulder-screw hinge
+		const band = mesh(new THREE.TorusGeometry(0.32 * IN, 0.06 * IN, 4, 12), M.rubber, R, root[0] + 0.6, armY + 0.1, root[1]);
+		band.rotation.x = Math.PI / 2;
+		rod(R, M.steel, [tip[0], armY + 0.2, tip[1]], [tip[0], pk.y, tip[1]], 0.12);         // standoff down to the puck
+		mesh(new THREE.CylinderGeometry(pk.r * IN, pk.r * IN, pk.h * IN, 20), M.rubber, R, tip[0], pk.y, tip[1]);
+		screw(R, tip[0], armY + 0.55, tip[1], 'y');
+	}
 
 	// ---- Electronics: Brain, battery, radio, cables -----------------------------------------------
 	const brain = new THREE.Group();
@@ -356,7 +370,7 @@ export function buildRobotMesh(CFG) {
 	mesh(new THREE.BoxGeometry(0.8 * IN, 0.45 * IN, (2 * zs + 1.6) * IN), out.clawLight, car, X - 1.2, ct + 1.9, 0);   // strip on the brace over the gears
 	for (const s of [-1, 1]) mesh(new THREE.BoxGeometry(1.0 * IN, 3.2 * IN, 0.35 * IN), out.clawLight, car, X + 2.3, ct - 1.8, s * (zs + 1.2));
 
-	// ---- Goal guide: two hinged arms under the claw, rubber feet on the tips ----------------------
+	// ---- Goal guide: two hinged arms under the claw, a V that seats the goal ----------------------
 	const gd = CFG.guide, gy = (gd.y0 + gd.y1) / 2;
 	channel(R, 'silver', [CFG.clawX + 2.9, 0.9, -track + 1.0], [CFG.clawX + 2.9, 0.9, track - 1.0], 1, [-1, 0, 0]);   // crossbar the arms hang from
 	for (const s of [-1, 1]) {
@@ -367,9 +381,9 @@ export function buildRobotMesh(CFG) {
 		rod(R, M.steel, [x0, gy - 1.2, s * (z0 + 0.4)], [x0, gy + 0.8, s * (z0 + 0.4)], 0.1);
 		const band = mesh(new THREE.TorusGeometry(0.3 * IN, 0.06 * IN, 4, 12), M.rubber, R, x0 + 0.5, gy, s * (z0 + 0.5));
 		band.rotation.x = Math.PI / 2;
-		// tip: standoff with the black rubber foot
+		// tip: a steel standoff down toward the floor
 		rod(R, M.steel, [x1, gy - 0.4, s * (z1 + 0.1)], [x1, gy + 1.0, s * (z1 + 0.1)], 0.12);
-		mesh(new THREE.CylinderGeometry(0.42 * IN, 0.46 * IN, 1.4 * IN, 16), M.rubber, R, x1, 1.3, s * (z1 + 0.1));
+		mesh(new THREE.CylinderGeometry(0.3 * IN, 0.3 * IN, 1.4 * IN, 12), M.steel, R, x1, 1.3, s * (z1 + 0.1));
 		screw(R, x1, gy + 1.05, s * (z1 + 0.1), 'y');
 	}
 	return out;

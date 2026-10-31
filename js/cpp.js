@@ -62,6 +62,13 @@ export function translateCpp(src, blocking = []) {
 	const strs = [];
 	s = s.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, (m) => `__STR${strs.push(m) - 1}__`);
 	s = s.replace(/\busing\s+namespace\s+[\w:]+\s*;/g, '');
+	// Unbalanced braces (e.g. a /* comment that's never closed swallows the end of the file): close
+	// what's open so the rest still runs, and say so.
+	const warnings = [];
+	const lastOpen = src.lastIndexOf('/*'), lastClose = src.lastIndexOf('*/');
+	if (lastOpen > lastClose) warnings.push(`a /* comment at line ${src.slice(0, lastOpen).split("\n").length} of the routine editor is never closed: everything after it is ignored`);
+	const missing = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+	if (missing > 0) { s += '\n}'.repeat(missing); warnings.push(`${missing} closing } missing at the end, added`); }
 	// Anonymous / named namespaces: drop the wrapper, keep the contents.
 	for (let m; (m = /\bnamespace\s*\w*\s*\{/.exec(s));) {
 		const open = m.index + m[0].length - 1, close = matchBracket(s, open);
@@ -134,7 +141,7 @@ export function translateCpp(src, blocking = []) {
 	s = s.replace(/__STR(\d+)__/g, (m, i) => strs[+i]);
 	const hasMain = fns.has('run_routine');
 	const code = hasMain ? `${s}\nyield* run_routine();` : s;
-	return { code, functions: [...fns] };
+	return { code, functions: [...fns], warnings };
 }
 
 // printf-style formatting for snprintf / printf (%d %i %f %.Nf %s %c %%, widths and '-').
