@@ -388,3 +388,6 @@ export function buildRobotMesh(CFG) {
 	}
 	return out;
 }
+
+// Part builders shared with the other robot models (dr4bmodel.js).
+export { M, mat, mesh, basis, channel, rod, shaft, collar, screw, zip, gear, gearGeo, omni, flexWheel, motor, plateTexture };

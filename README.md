@@ -19,9 +19,10 @@ Everything it needs (three.js, Rapier, the routine) is in this repo, so nothing 
 - **Modes:** Free Drive (D-pad ↓ runs a 15 s practice auton), Solo Match (15 s auton + 1:45 driver), 2v2 vs AI.
 - **Drivetrain:** not a velocity setter. Each side is two V5 motors (torque curve, back-EMF, current limit, heat throttling) through gears with backlash, into wheels that can stick or slip. Omni wheels slide sideways, the robot coasts when you let go, and the two sides are slightly mismatched. With the cascade up the robot rocks, can wheelie, and tips if you slam the stick (the opcontrol anti-tip scale is ported). Smooth stick work is the whole point.
 - **Pick your robot** on the title menu (remembered on this device):
-  - **4787T Titanium** (current): silver drive with red gears, cascade lift, flex-wheel claw on the back with the V-shaped guide below it. On the front, two hinged blue arms with black rubber pucks hit the Toggles: the pucks sit at the Toggle's height (above the wall), so one solid hit flips it one face.
+  - **DR4B (new robot, default):** built from the team's Onshape CAD ("main" assembly). 6-wheel drive (2.75" omni, traction, omni a side; 4 blue motors, 36T to 48T = 450 rpm), so it grips sideways much better than the all-omni builds. A double reverse four-bar (2 green motors, 12T to 60T, rotation sensor on the arm axle) carries the flex-wheel claw on the back straight up to about 32". A pneumatic gear pincer on the front clamps one cup / pin stack and carries it. There is no robot code for it yet, so the controls are 4787T's (L1 / L2 lift, R1 grab, R2 / A release) plus B for the pincer, and the practice auton runs the current `routine.cpp`. Sizes were measured off the CAD renders (the Onshape API only gives geometry with a key), so treat them as close, not exact.
+  - **4787T Titanium:** silver drive with red gears, cascade lift, flex-wheel claw on the back with the V-shaped guide below it. On the front, two hinged blue arms with black rubber pucks hit the Toggles: the pucks sit at the Toggle's height (above the wall), so one solid hit flips it one face.
   - **Ground intake (first build, Sept to Oct 2026):** brought back from the sim's history. Front intake into a hopper, cascade, and the big claw frame on the back that flips through 4 positions. Same drivetrain physics as the current robot; controls are the old opcontrol.cpp (R1 intake cycle, R2 reverse, B claw flip, X straight to 90°, A / Y claw spin).
-  - New robots: write a class like `js/intakebot.js` and add it to `js/robots.js`.
+  - New robots: write a class like `js/dr4bbot.js` (its constants go in its own config, returned by `get C()`) and add it to `js/robots.js`.
 - **Claw guide:** the rollers and guide arms are real colliders, so a pin knocked over into the guide stays there and blocks the claw ("CLAW BLOCKED") until you drive it out.
 - **Ground pickups:** drive claw first into a standing cup + pin with R1 spinning, slowly (under about 6 in/s). Faster and the stack is knocked over.
 - **Wall stacks:** the claw only takes a wall stack if you come in square through the gap behind the goal. Come in crooked and you knock a neighbour over or grab the wrong cup, then you have to clear the pins with the drivetrain.
@@ -54,6 +55,7 @@ Updating `routine.cpp`:
 | `js/robotmodel.js` | Robot 3D model |
 | `js/robots.js` | The robots on the title menu |
 | `js/intakebot.js`, `js/intakemodel.js` | The first build (ground intake + flip claw) |
+| `js/dr4bbot.js`, `js/dr4bmodel.js` | The DR4B robot (from the CAD): lift, claw, pincer, its 3D model |
 | `js/field.js` | Field, goals, Toggles, Loaders, scoring |
 | `js/human.js` | Human players and match-load counts |
 | `js/auton.js` | Auton runtime, LemLib port, odometry |
