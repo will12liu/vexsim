@@ -131,7 +131,7 @@ export class HumanPlayers {
 		if (!L) return '';
 		if (!L.ready) return L.stacks.length ? 'Loader: dropping' : 'Loader: empty';
 		if (robot.loaderHint) return `Loader: ${L.stacks.length} in · ${robot.loaderHint()}`;
-		const high = robot.liftIn() + 9.4 > LOADER.slotTop + 0.2;
+		const high = robot.liftIn() + robot.C.clawTop > LOADER.slotTop + 0.2;
 		return `Loader: ${L.stacks.length} in · ${high ? 'cascade too high for the slot' : 'R1, back in square, SLOW'}`;
 	}
 }

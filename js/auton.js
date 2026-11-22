@@ -263,7 +263,7 @@ export function makeAuton(robot, sel /* { side, color } */, log, opts = {}) {
 	const timeLeft = () => Math.max(0, AUTON_BUDGET_MS - millis());
 
 	// ---- Older sim commands (routines from before 10/21 still run) ------------------------------
-	const posIn = () => (((robot.leftPos + robot.rightPos) / 2) / 360) * Math.PI * CFG.wheelDia * (CFG.driveRpm / CFG.motorRpm);
+	const posIn = () => (((robot.leftPos + robot.rightPos) / 2) / 360) * Math.PI * robot.C.wheelDia * (robot.C.driveRpm / robot.C.motorRpm);
 	let goalHeading = robot.imuDeg;
 	const startHeading = robot.imuDeg;
 	function* move(inches, speed = 100, kP = -1, kD = -1, timeout = 0) {
@@ -337,8 +337,8 @@ export function makeAuton(robot, sel /* { side, color } */, log, opts = {}) {
 		claw_grab_toggle: () => robot.clawGrabToggle(), claw_release_toggle: () => robot.clawReleaseToggle(),
 		claw_driver_update: () => {}, claw_driver_reset: () => robot.clawDriverReset(), claw_auton_start: () => {},
 		mech_stop_all: () => robot.mechStopAll(), lift_task_start: () => {},
-		CLAW_GRAB_SPEED: CFG.CLAW_GRAB_SPEED, CLAW_RELEASE_SPEED: CFG.CLAW_RELEASE_SPEED,
-		LIFT_LIMIT_BOTTOM_DEG: CFG.LIFT_LIMIT_BOTTOM_DEG, LIFT_LIMIT_TOP_DEG: CFG.LIFT_LIMIT_TOP_DEG, LIFT_HOLD_BAND_DEG: CFG.LIFT_HOLD_BAND_DEG, LIFT_RECORRECT_DEG: CFG.LIFT_RECORRECT_DEG,
+		CLAW_GRAB_SPEED: robot.C.CLAW_GRAB_SPEED, CLAW_RELEASE_SPEED: robot.C.CLAW_RELEASE_SPEED,
+		LIFT_LIMIT_BOTTOM_DEG: robot.C.LIFT_LIMIT_BOTTOM_DEG, LIFT_LIMIT_TOP_DEG: robot.C.LIFT_LIMIT_TOP_DEG, LIFT_HOLD_BAND_DEG: robot.C.LIFT_HOLD_BAND_DEG, LIFT_RECORRECT_DEG: robot.C.LIFT_RECORRECT_DEG,
 		// robot-config.h devices
 		chassis, lemlib, imu: { get_rotation: () => robot.imuDeg, get_heading: () => ((robot.imuDeg % 360) + 360) % 360, reset: () => {} },
 		left_motors: motors('L'), right_motors: motors('R'),

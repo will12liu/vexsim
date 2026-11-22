@@ -23,6 +23,8 @@ export const CFG = {
 	LIFT_LIMIT_BOTTOM_DEG: 10, LIFT_LIMIT_TOP_DEG: -1444, LIFT_LIMIT_SLOW_DEG: 80, LIFT_LIMIT_MIN_POWER: 30,
 	LIFT_HOLD_BAND_DEG: 6, LIFT_RECORRECT_DEG: 14, LIFT_UP_MIN_POWER: 40, LIFT_DOWN_MIN_POWER: 30, LIFT_DOWN_MAX_POWER: 100,
 	LIFT_SLOW_START_FRAC: 0.35, LIFT_SLOW_MIN_SCALE: 0.4,
+	LIFT_KP: 3,                         // lift_task_fn(): power = 3 * error (sensor degrees)
+	clawTop: 9.4,                       // top of the claw above the lift height (inches): what has to fit under a Loader tube
 	R1_LIFT_ROT: -70,                   // opcontrol.cpp: R1 also sends the cascade to -70 (intake height)
 	liftMaxIn: 42.1,                    // claw scoring point 107 cm up at the top
 	liftDegPerSec: 1250,                // 3 green motors at full power (assumed)
@@ -55,6 +57,9 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const upright = (o) => { const r = o.body.rotation(); return Math.abs(1 - 2 * (r.x * r.x + r.z * r.z)) > 0.85; };
 
 export class Robot {
+	// This robot's measurements / constants (subclasses return their own).
+	get C() { return CFG; }
+
 	constructor(R, world, scene, field) {
 		this.R = R; this.world = world; this.scene = scene; this.field = field;
 		this.alliance = 'red';
@@ -66,8 +71,8 @@ export class Robot {
 	// ---- Body -------------------------------------------------------------------------------
 	build() {
 		const { R, world } = this;
-		const L = CFG.length, Wd = CFG.width, H = CFG.height, hl = L / 2, hw = Wd / 2;
-		const m = CFG.mass, I = (m * ((L * IN) ** 2 + (Wd * IN) ** 2)) / 12 * 0.85;
+		const L = this.C.length, Wd = this.C.width, H = this.C.height, hl = L / 2, hw = Wd / 2;
+		const m = this.C.mass, I = (m * ((L * IN) ** 2 + (Wd * IN) ** 2)) / 12 * 0.85;
 		this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setCanSleep(false).setLinearDamping(0).setAngularDamping(0)
 			.setAdditionalMassProperties(m, { x: 0, y: 0.15, z: 0 }, { x: I, y: I, z: I }, { x: 0, y: 0, z: 0, w: 1 }));
 		this.body.setEnabledRotations(false, true, false, true);
@@ -81,7 +86,7 @@ export class Robot {
 		};
 		// U-shaped base, open at the back so a cup + pin stack (or a goal) drives in under the claw;
 		// closed front with the crossbar that hits the Toggle; corner towers.
-		const inner = CFG.clawX + 2.9;   // in front of a goal seated under the claw
+		const inner = this.C.clawX + 2.9;   // in front of a goal seated under the claw
 		this.colliders = [
 			box(-hl, hl, 0.3, 4, -hw, -hw + 2), box(-hl, hl, 0.3, 4, hw - 2, hw),
 			box(hl - 1.5, hl + 0.6, 0.3, 4, -hw + 2, hw - 2),
@@ -93,7 +98,7 @@ export class Robot {
 			box(-hl + 2, hl - 2, 4, 12, -hw, -hw + 1.5), box(-hl + 2, hl - 2, 4, 12, hw - 1.5, hw),
 		];
 		// Goal guide: the two V arms + their rubber feet (fixed to the chassis, hit everything).
-		const gd = CFG.guide;
+		const gd = this.C.guide;
 		for (const s of [-1, 1]) {
 			const [x0, z0] = gd.root, [x1, z1] = gd.tip;
 			const len = Math.hypot(x1 - x0, z1 - z0), a = Math.atan2(s * (z1 - z0), x1 - x0);
@@ -109,18 +114,18 @@ export class Robot {
 		}
 		// Toggle pucks: rubber, grippy.
 		for (const s of [-1, 1]) {
-			const pk = CFG.puck;
+			const pk = this.C.puck;
 			this.colliders.push(world.createCollider(R.ColliderDesc.cylinder((pk.h / 2) * IN, pk.r * IN).setTranslation(pk.x * IN, pk.y * IN, s * pk.z * IN)
 				.setFriction(0.9).setDensity(0).setCollisionGroups(groups(GROUP.robot, 0xffff)), this.body));
 		}
 		// The claw: two roller stacks + the brace behind the cup. They ride up with the lift
 		// (moved every step) and only touch pins, cups and robots.
 		const cg = groups(GROUP.claw, 0xffff & ~(GROUP.toggle | GROUP.wall | GROUP.fixed));
-		const X = CFG.clawX, zs = 1.575 + CFG.clawWheelR - 0.3;
+		const X = this.C.clawX, zs = 1.575 + this.C.clawWheelR - 0.3;
 		this.clawCols = [];
 		for (const s of [-1, 1]) {
 			// Flex wheels squash: a stack centred in the mouth slides in between them, an off-centre one hits one.
-			const c = world.createCollider(R.ColliderDesc.cylinder(2.3 * IN, (CFG.clawWheelR - 0.25) * IN).setFriction(0.8).setDensity(0).setCollisionGroups(cg), this.body);
+			const c = world.createCollider(R.ColliderDesc.cylinder(2.3 * IN, (this.C.clawWheelR - 0.25) * IN).setFriction(0.8).setDensity(0).setCollisionGroups(cg), this.body);
 			this.clawCols.push({ c, p: [X, 3.1, s * zs] });
 		}
 		const brace = world.createCollider(R.ColliderDesc.cuboid(0.25 * IN, 1.0 * IN, 3.2 * IN).setFriction(0.3).setDensity(0).setCollisionGroups(cg), this.body);
@@ -144,7 +149,7 @@ export class Robot {
 		this.liftDeg = 0; this.liftVel = 0; this.liftPower = 0; this.liftRate = 0;
 		this.liftTask = { active: false, goal: 0, holding: false, t: 0 };
 		this.liftMode = 'power';   // 'pos' = simple position mode (AI robots, old auton commands)
-		this.liftTarget = 0; this.liftVelCmd = CFG.LIFT_VELOCITY;
+		this.liftTarget = 0; this.liftVelCmd = this.C.LIFT_VELOCITY;
 		this.clawMode = 'STOPPED'; this.clawSpin = 0;
 		this.leftPos = 0; this.rightPos = 0; this.imuDeg = 0; this.t = 0;
 		this.hopper = null; this.claw = null; this.clawExtraPiece = null; this.clawRel = null; this.clawHold = null;
@@ -163,24 +168,28 @@ export class Robot {
 		this.body.setRotation(q, true);
 		this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
 		this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-		for (const pin of [this.hopper, this.clawExtraPiece, this.claw]) if (pin && this.field.has(pin)) this.releasePin(pin, false);
+		for (const pin of this.heldPieces()) if (pin && this.field.has(pin)) this.releasePin(pin, false);
 		this.resetState();
 		this.updateClawColliders();
 	}
+
+	// Everything the robot is holding (let go of on reset / robot swap).
+	heldPieces() { return [this.hopper, this.clawExtraPiece, this.claw]; }
 
 	quat() { const r = this.body.rotation(); return new THREE.Quaternion(r.x, r.y, r.z, r.w); }
 	pos() { const t = this.body.translation(); return new THREE.Vector3(t.x, t.y, t.z); }
 	toWorld(x, y, z) { return new THREE.Vector3(x * IN, y * IN, z * IN).applyQuaternion(this.quat()).add(this.pos()); }
 	toLocal(v) { return v.clone().sub(this.pos()).applyQuaternion(this.quat().invert()).divideScalar(IN); }
 	fwd() { return new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat()); }
-	liftIn() { return clamp(this.liftDeg * CFG.liftInPerDeg, 0, CFG.liftMaxIn + 0.5); }
+	liftIn() { return clamp(this.liftDeg * this.C.liftInPerDeg, 0, this.C.liftMaxIn + 0.5); }
+	liftDegFor(inches) { return inches / this.C.liftInPerDeg; }   // inverse of liftIn()
 	tipped() { return this.drive.tipped !== 0; }
 	// How far the front reaches past the centre (inches): the Toggle pucks.
-	frontReach() { return CFG.puck.x + CFG.puck.r; }
+	frontReach() { return this.C.puck.x + this.C.puck.r; }
 
 	// Robot footprint touches the Midfield?
 	inMidfield() {
-		const hl = CFG.length / 2, hw = CFG.width / 2;
+		const hl = this.C.length / 2, hw = this.C.width / 2;
 		for (const [x, z] of [[hl, hw], [hl, -hw], [-hl, hw], [-hl, -hw], [0, 0]]) {
 			const f = toField(this.toWorld(x, 0, z));
 			if (Math.abs(f.fx) + Math.abs(f.fy) <= MID) return true;
@@ -260,7 +269,7 @@ export class Robot {
 
 	// Start the match holding the preload (<SG5>: red/yellow for red, blue/yellow for blue) in the claw.
 	loadPreload() {
-		const pin = this.field.makePin(this.alliance, 'yellow', this.toWorld(CFG.clawX, PIN_H / 2 + 0.5, 0));
+		const pin = this.field.makePin(this.alliance, 'yellow', this.toWorld(this.C.clawX, PIN_H / 2 + 0.5, 0));
 		this.grab(pin, true);
 	}
 
@@ -294,17 +303,17 @@ export class Robot {
 		const lv = this.body.linvel(), v = new THREE.Vector3(lv.x, 0, lv.z);
 		const vf = v.dot(fwd), vl = v.dot(right), w = this.body.angvel().y;
 		const nv = this.drive.step(dt, { L: this.leftCmd, R: this.rightCmd }, this.brake, { f: vf, l: vl, w });
-		const m = CFG.mass;
+		const m = this.C.mass;
 		const imp = fwd.multiplyScalar((nv.f - vf) * m).addScaledVector(right, (nv.l - vl) * m);
 		this.body.applyImpulse({ x: imp.x, y: 0, z: imp.z }, true);
 		this.body.setAngvel({ x: 0, y: nv.w, z: 0 }, true);
 		this.driveForce = this.drive.driveForce;   // N, forward; the Toggle uses it to tell a shove from a bump
 		// Encoders (motor deg, slop and wheel spin included) and IMU (deg, clockwise +, unwrapped).
-		const circ = Math.PI * CFG.wheelDia * IN, gear = CFG.motorRpm / CFG.driveRpm;
+		const circ = Math.PI * this.C.wheelDia * IN, gear = this.C.motorRpm / this.C.driveRpm;
 		this.leftPos = (this.drive.encL / circ) * 360 * gear;
 		this.rightPos = (this.drive.encR / circ) * 360 * gear;
 		this.imuDeg -= (w * dt) / DEG;
-		this.wheelSpin = { L: this.drive.L.vw / (CFG.wheelDia / 2 * IN), R: this.drive.R.vw / (CFG.wheelDia / 2 * IN) };
+		this.wheelSpin = { L: this.drive.L.vw / (this.C.wheelDia / 2 * IN), R: this.drive.R.vw / (this.C.wheelDia / 2 * IN) };
 	}
 
 	// ---- Cascade + claw: port of src/mechanisms.cpp ----------------------------------------------
@@ -314,10 +323,10 @@ export class Robot {
 		power = clamp(Math.round(power), -127, 127);
 		if (power !== 0) {
 			const pos = this.liftPos(), upSign = -1;
-			const room = power > 0 ? (CFG.LIFT_LIMIT_TOP_DEG - pos) * upSign : (pos - CFG.LIFT_LIMIT_BOTTOM_DEG) * upSign;
+			const room = power > 0 ? (this.C.LIFT_LIMIT_TOP_DEG - pos) * upSign : (pos - this.C.LIFT_LIMIT_BOTTOM_DEG) * upSign;
 			if (room <= 0) power = 0;
-			else if (room < CFG.LIFT_LIMIT_SLOW_DEG) {
-				const cap = Math.max(CFG.LIFT_LIMIT_MIN_POWER, Math.trunc((127 * room) / CFG.LIFT_LIMIT_SLOW_DEG));
+			else if (room < this.C.LIFT_LIMIT_SLOW_DEG) {
+				const cap = Math.max(this.C.LIFT_LIMIT_MIN_POWER, Math.trunc((127 * room) / this.C.LIFT_LIMIT_SLOW_DEG));
 				power = clamp(power, -cap, cap);
 			}
 		}
@@ -328,10 +337,10 @@ export class Robot {
 	liftRelease() { this.liftTask.active = false; }
 	// lift_drive_scale(): anti-tip, the higher the lift the less drive power (40% at the top).
 	liftDriveScale() {
-		let f = (this.liftPos() - CFG.LIFT_LIMIT_BOTTOM_DEG) / (CFG.LIFT_LIMIT_TOP_DEG - CFG.LIFT_LIMIT_BOTTOM_DEG);
-		if (f <= CFG.LIFT_SLOW_START_FRAC) return 1;
+		let f = (this.liftPos() - this.C.LIFT_LIMIT_BOTTOM_DEG) / (this.C.LIFT_LIMIT_TOP_DEG - this.C.LIFT_LIMIT_BOTTOM_DEG);
+		if (f <= this.C.LIFT_SLOW_START_FRAC) return 1;
 		f = Math.min(f, 1);
-		return 1 - ((f - CFG.LIFT_SLOW_START_FRAC) / (1 - CFG.LIFT_SLOW_START_FRAC)) * (1 - CFG.LIFT_SLOW_MIN_SCALE);
+		return 1 - ((f - this.C.LIFT_SLOW_START_FRAC) / (1 - this.C.LIFT_SLOW_START_FRAC)) * (1 - this.C.LIFT_SLOW_MIN_SCALE);
 	}
 	clawGrabToggle() { this.clawMode = this.clawMode === 'GRAB' ? 'STOPPED' : 'GRAB'; }
 	clawReleaseToggle() { this.clawMode = this.clawMode === 'RELEASE' ? 'STOPPED' : 'RELEASE'; }
@@ -343,11 +352,11 @@ export class Robot {
 		const T = this.liftTask;
 		if (!T.active) return;
 		const err = (T.goal - this.liftPos()) * -1, dist = Math.abs(err);
-		if (dist < CFG.LIFT_HOLD_BAND_DEG) T.holding = true;
-		else if (dist > CFG.LIFT_RECORRECT_DEG) T.holding = false;
+		if (dist < this.C.LIFT_HOLD_BAND_DEG) T.holding = true;
+		else if (dist > this.C.LIFT_RECORRECT_DEG) T.holding = false;
 		if (T.holding) { this.cascadeMove(0); return; }
-		let p = Math.trunc(3 * err);
-		p = err > 0 ? clamp(p, CFG.LIFT_UP_MIN_POWER, 127) : clamp(p, -CFG.LIFT_DOWN_MAX_POWER, -CFG.LIFT_DOWN_MIN_POWER);
+		let p = Math.trunc(this.C.LIFT_KP * err);
+		p = err > 0 ? clamp(p, this.C.LIFT_UP_MIN_POWER, 127) : clamp(p, -this.C.LIFT_DOWN_MAX_POWER, -this.C.LIFT_DOWN_MIN_POWER);
 		this.cascadeMove(p);
 	}
 
@@ -355,13 +364,13 @@ export class Robot {
 	liftCeiling() {
 		for (const L of this.field.loaders || []) {
 			const l = this.toLocal(W(L.px, L.fy, 0));
-			if (Math.abs(l.z) < 4.5 && l.x > CFG.clawX - 3.6 && l.x < CFG.clawX + 3.6) return LOADER.slotTop - 9.4;
+			if (Math.abs(l.z) < 4.5 && l.x > this.C.clawX - 3.6 && l.x < this.C.clawX + 3.6) return LOADER.slotTop - this.C.clawTop;
 		}
 		return Infinity;
 	}
 
 	stepMechanisms(dt) {
-		this.clawSpin = this.clawMode === 'RELEASE' ? CFG.CLAW_RELEASE_SPEED : this.clawMode === 'GRAB' ? CFG.CLAW_GRAB_SPEED : 0;
+		this.clawSpin = this.clawMode === 'RELEASE' ? this.C.CLAW_RELEASE_SPEED : this.clawMode === 'GRAB' ? this.C.CLAW_GRAB_SPEED : 0;
 		if ((this.liftTask.tick = (this.liftTask.tick || 0) + dt) >= 0.01) { this.liftTask.tick -= 0.01; this.liftTaskStep(); }
 		const before = this.liftDeg;
 		if (this.liftMode === 'pos') {   // simple position mode (AI robots / old auton commands)
@@ -370,14 +379,14 @@ export class Robot {
 		} else {
 			// Cascade motors: speed follows power (a little slower going up against gravity); brake mode holds.
 			const p = this.tipped() ? 0 : this.liftPower;
-			const want = (p / 127) * CFG.liftDegPerSec * (p > 0 ? 0.92 : 1.05);
+			const want = (p / 127) * this.C.liftDegPerSec * (p > 0 ? 0.92 : 1.05);
 			this.liftVel += (want - this.liftVel) * (1 - Math.exp(-dt / (p === 0 ? 0.03 : 0.07)));
 			this.liftDeg += this.liftVel * dt;
 		}
 		const ceil = this.liftCeiling();
-		if (this.liftIn() > ceil && this.liftDeg > before) this.liftDeg = Math.max(before, ceil / CFG.liftInPerDeg);
-		if (this.liftDeg < 0 || this.liftDeg > CFG.liftMaxDeg) this.liftVel = 0;
-		this.liftDeg = clamp(this.liftDeg, 0, CFG.liftMaxDeg);
+		if (this.liftIn() > ceil && this.liftDeg > before) this.liftDeg = Math.max(before, this.liftDegFor(ceil));
+		if (this.liftDeg < 0 || this.liftDeg > this.C.liftMaxDeg) this.liftVel = 0;
+		this.liftDeg = clamp(this.liftDeg, 0, this.C.liftMaxDeg);
 		this.liftRate = (this.liftDeg - before) / dt;
 		this.updateClawColliders();
 	}
@@ -388,7 +397,9 @@ export class Robot {
 	}
 
 	// The mouth of the claw (robot-local inches): where a stack has to be for the rollers to pull it in.
-	inMouth(l, slack = 0) { return Math.abs(l.z) < 1.35 + slack && l.x > -CFG.length / 2 - 0.4 - slack && l.x < CFG.clawX + 0.8 + slack; }
+	inMouth(l, slack = 0) { return Math.abs(l.z) < 1.35 + slack && l.x > this.mouthBack() - 0.4 - slack && l.x < this.C.clawX + 0.8 + slack; }
+	// Back edge of the claw's mouth (robot-local x): the back of the frame on this robot.
+	mouthBack() { return -this.C.length / 2; }
 
 	// Speed of a piece relative to the claw mouth (m/s).
 	relSpeed(o) {
@@ -403,7 +414,7 @@ export class Robot {
 		for (const o of [...this.field.pins, ...this.field.cups]) {
 			if (o.held || except.includes(o)) continue;
 			const l = this.toLocal(new THREE.Vector3().copy(o.body.translation()));
-			if (l.y < this.liftIn() + 8 && Math.abs(l.z) < 2.6 && l.x > -CFG.length / 2 - 0.6 && l.x < CFG.clawX + 2.2) return o;
+			if (l.y < this.liftIn() + 8 && Math.abs(l.z) < 2.6 && l.x > this.mouthBack() - 0.6 && l.x < this.C.clawX + 2.2) return o;
 		}
 		return null;
 	}
@@ -441,7 +452,7 @@ export class Robot {
 				const blocker = this.mouthBlocker(r.L.stack || []);
 				const sp = Math.hypot(this.body.linvel().x, this.body.linvel().z);
 				if (blocker) this.warn('CLAW BLOCKED', 'Something is stuck in the guide: shake it out before loading');
-				else if (spinIn && this.releaseCool <= 0 && r.ok && sp < CFG.grabMaxSpeed * 1.3) {
+				else if (spinIn && this.releaseCool <= 0 && r.ok && sp < this.C.grabMaxSpeed * 1.3) {
 					const st = r.L.stack, o = this.field.takeLoader(r.L);
 					this.grab(o);
 					for (const k of st) if (!k.held) this.field.freePiece(k);
@@ -458,7 +469,7 @@ export class Robot {
 				// The speed it hits the rollers at decides: once knocked it's falling, not grabbable.
 				if ((this.knocked.get(o) ?? -9) > this.t - 1.2) continue;
 				const sp = this.relSpeed(o);
-				if (sp > CFG.grabMaxSpeed) { this.knock(o, sp); continue; }
+				if (sp > this.C.grabMaxSpeed) { this.knock(o, sp); continue; }
 				if (!spinIn || this.releaseCool > 0) continue;
 				const partner = this.field.partnerOf(o);
 				if (this.mouthBlocker([o, partner].filter(Boolean))) { this.warn('CLAW BLOCKED', 'Something is stuck in the guide'); continue; }
@@ -491,10 +502,10 @@ export class Robot {
 		// Move the held stack (being pulled in from the mouth, then riding with the lift).
 		if (this.claw) {
 			const h = this.clawHold, mq = this.quat().multiply(h.q);
-			let x = CFG.clawX, z = 0;
+			let x = this.C.clawX, z = 0;
 			if (this.pulling) {
 				const P = this.pulling, k = Math.min(1, (P.t += dt) / P.dur), e = k * k * (3 - 2 * k);
-				x = P.x + (CFG.clawX - P.x) * e; z = P.z * (1 - e);
+				x = P.x + (this.C.clawX - P.x) * e; z = P.z * (1 - e);
 				if (k >= 1) { this.pulling = null; this.clawMode = this.clawMode === 'GRAB' ? 'STOPPED' : this.clawMode; }   // optical sensor sees it: R1 stops by itself
 			}
 			// The floor stops a stack the claw lowers onto it (the rollers slide down the cup instead).
@@ -524,10 +535,10 @@ export class Robot {
 	loaderReach() {
 		for (const L of this.field.loaders || []) {
 			const l = this.toLocal(W(L.px, L.fy, 0));
-			if (Math.abs(l.z) > 3 || l.x > CFG.clawX + 2 || l.x < -CFG.length / 2 - 3) continue;
+			if (Math.abs(l.z) > 3 || l.x > this.C.clawX + 2 || l.x < this.mouthBack() - 3) continue;
 			const fwd = this.fwd();
 			const square = fwd.x * L.n > Math.cos(18 * DEG);
-			return { L, l, inMouth: !!L.stack?.length && this.inMouth(l), ok: L.ready && square && this.liftIn() + 9.4 <= LOADER.slotTop + 0.2 };
+			return { L, l, inMouth: !!L.stack?.length && this.inMouth(l), ok: L.ready && square && this.liftIn() + this.C.clawTop <= LOADER.slotTop + 0.2 };
 		}
 		return null;
 	}
@@ -536,13 +547,13 @@ export class Robot {
 	// robot can't back in under it.
 	holdAtToggle() {
 		this.toggleHitV = 0;
-		const top = this.liftIn() + 9.4;
+		const top = this.liftIn() + this.C.clawTop;
 		if (top <= LOADER.slotTop + 0.2) return;
 		const hw = 4.5;
 		for (const L of this.field.loaders || []) {
 			const l = this.toLocal(W(L.px, L.fy, 0));
-			if (Math.abs(l.z) > hw || l.x > CFG.clawX + 6 || l.x < CFG.clawX - 4) continue;
-			if (l.x > CFG.clawX + 2.6) continue;   // the tube would have to be inside the claw: stop
+			if (Math.abs(l.z) > hw || l.x > this.C.clawX + 6 || l.x < this.C.clawX - 4) continue;
+			if (l.x > this.C.clawX + 2.6) continue;   // the tube would have to be inside the claw: stop
 			const fwd = this.fwd(), v = this.body.linvel(), vx = v.x * fwd.x + v.z * fwd.z;
 			if (vx < 0) this.body.setLinvel({ x: v.x - vx * fwd.x, y: 0, z: v.z - vx * fwd.z }, true);
 		}
@@ -579,6 +590,7 @@ export class Robot {
 
 	onTipped() {
 		if (this.claw) this.releaseClaw(true);
+		this.onTippedExtra?.();
 		this.leftCmd = this.rightCmd = 0; this.liftPower = 0; this.clawMode = 'STOPPED';
 		this.flash?.('TIPPED OVER', 'Too hard a stop / hit with the cascade up. Press T to reset');
 	}
@@ -634,7 +646,7 @@ export class Robot {
 		this.leftCmd = clamp(dir + turn, -127, 127);
 		this.rightCmd = clamp(dir - turn, -127, 127);
 		const estop = c.X && c.A;
-		if (newPress('R1') && !estop) { this.clawGrabToggle(); this.liftTo(CFG.R1_LIFT_ROT); o.preset = true; }
+		if (newPress('R1') && !estop) { this.clawGrabToggle(); this.liftTo(this.C.R1_LIFT_ROT); o.preset = true; }
 		if ((newPress('R2') || newPress('A')) && !estop) this.clawReleaseToggle();
 		if (!estop && c.L1) { this.liftRelease(); o.preset = false; this.cascadeMove(127); }
 		else if (!estop && c.L2) { this.liftRelease(); o.preset = false; this.cascadeMove(-85); }

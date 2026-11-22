@@ -83,7 +83,7 @@ hookFlash(robot);
 function setRobot(id) {
 	if (!ROBOTS[id] || id === robotId) return;
 	stopAuton();
-	for (const p of [robot.hopper, robot.clawExtraPiece, robot.claw]) if (p && field.has(p)) robot.releasePin(p, false);
+	for (const p of robot.heldPieces()) if (p && field.has(p)) robot.releasePin(p, false);
 	world.removeRigidBody(robot.body); scene.remove(robot.mesh);
 	robotId = id; store.set('titanium.robot', id);
 	robot = new ROBOTS[id].cls(RAPIER, world, scene, field);
@@ -102,10 +102,6 @@ function renderRobotPick() {
 		b.onclick = () => setRobot(id);
 		el.appendChild(b);
 	}
-	const soon = document.createElement('div');
-	soon.className = 'rcard soon';
-	soon.innerHTML = '<b>New robot (being built)</b><small>Not in the sim yet: add it once there are photos and code</small>';
-	el.appendChild(soon);
 }
 function log(msg) {
 	const el = $('log');
@@ -303,7 +299,7 @@ function renderControls() {
 		...robot.constructor.controlRows(k, x),
 		['Auton side', k('←') + ' ' + k('→'), 'D-pad ← →', k('←') + ' ' + k('→'), 'Like the Brain\'s RED L / RED R / BLUE L / BLUE R buttons. Blue swaps the path in routine.cpp'],
 		['Practice auton (15 s cutoff)', k('↓'), 'D-pad ↓', k('↓'), 'Free drive only, like autonomous_match_sim()'],
-		['Run the routine as a macro', 'Hold ' + k('B') + ', press ' + k('Y'), 'Hold ' + k(x.B) + ', press ' + k(x.Y), 'Hold ' + k('B') + ', press ' + k('Y')],
+		...(robot.constructor.hasMacro === false ? [] : [['Run the routine as a macro', 'Hold ' + k('B') + ', press ' + k('Y'), 'Hold ' + k(x.B) + ', press ' + k(x.Y), 'Hold ' + k('B') + ', press ' + k('Y')]]),
 		['E-stop a practice run / macro', k('L1') + '+' + k('R1'), k('LB') + '+' + k('RB'), k('R') + '+' + k('E'), k('X') + '+' + k('A') + ' blocks the lift and claw buttons while held'],
 	];
 	$('ctrlRows').innerHTML = rows.map(([a, v, xb, kb, note]) => `<tr><td>${a}${note ? `<small>${note}</small>` : ''}</td><td>${v}</td><td>${xb}</td><td>${kb}</td></tr>`).join('');
