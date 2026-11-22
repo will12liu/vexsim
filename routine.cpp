@@ -1,5 +1,6 @@
 #include "auton.h"
 #include "auton_cmds.h"
+#include "auton_selector.h"
 #include "mechanisms.h"
 #include "robot-config.h"
 #include <cmath>
@@ -13,10 +14,11 @@ constexpr int SCORE_ACTION_PAUSE_MS = 100;  // After raising the pin, before the
 constexpr float SCORE_APPROACH_Y = -13.3f;
 
 // Toggle: reverse to this y, drive into the wall, then correct the robot's known position.
-constexpr float TOGGLE_BACK_Y = -6.4f;
+constexpr float TOGGLE_BACK_Y = -7.4f;
 constexpr float SECOND_TOGGLE_BACK_Y = TOGGLE_BACK_Y - 4.0f;
 constexpr float WALL_Y = 0.7f;
 constexpr int TOGGLE_HIT_POWER = 127;
+constexpr int TOGGLE_REVERSE_PAUSE_MS = 100;
 constexpr int TOGGLE_HIT_MS = 900;
 constexpr int SECOND_TOGGLE_HIT_MS = 900;
 constexpr int SECOND_HIT_MIN_TIME_MS = 9000;
@@ -31,14 +33,16 @@ constexpr int SCORE_DRIVE_TIMEOUT_MS = auton_move_time(4000);
 constexpr int SCORE_SETTLE_MS = 200;
 constexpr int SCORE_RELEASE_PAUSE_MS = 500;  // Let the pin clear before pulling away after either score.
 constexpr int CLAW_RELEASE_MS = 1500;
-constexpr int CLAMP_DOWN_POWER = 60;
+constexpr int CLAW_RELEASE_POWER = 127;  // Full power for opening under load.
+constexpr int CLAMP_DOWN_POWER = 85;
 constexpr int CLAMP_PUSH_MS = 900;
-constexpr int CLAMP_HOLD_POWER = 30;
+constexpr int CLAMP_HOLD_POWER = 40;
 
-// Exit: pull forward from the goal, turn 60 degrees, then intake backward toward -y.
-constexpr int EXIT_LOWER_TIMEOUT_MS = 4000;
-constexpr float EXIT_TURN_DEG = 60.0f;
-constexpr int EXIT_TURN_TIMEOUT_MS = auton_move_time(2000);
+// Exit: pull forward from the goal, turn 40 degrees, then intake backward toward -y.
+constexpr int EXIT_PULL_AWAY_TIMEOUT_MS = 1000;
+constexpr int EXIT_LOWER_WAIT_MS = 500;
+constexpr float EXIT_TURN_DEG = 40.0f;
+constexpr int EXIT_TURN_TIMEOUT_MS = 1000;
 constexpr float EXIT_Y_CHANGE = -16.0f;
 constexpr float EXIT_DISTANCE_ADJUST = 1.0f;
 constexpr float EXIT_SLOW_BACK_IN = 12.75f;
@@ -84,6 +88,7 @@ constexpr Side LEFT_SIDE = {
 
 void hit_toggle(float from_y, float back_y, int hit_ms) {
 	back_dist(from_y - back_y, DRIVE_SPEED);
+	wait(TOGGLE_REVERSE_PAUSE_MS);
 	drive_time(TOGGLE_HIT_POWER, hit_ms);
 	set_pose(0, WALL_Y, 0);
 }
@@ -138,14 +143,14 @@ bool wait_for_lift(double target, int timeout_ms = LIFT_WAIT_TIMEOUT_MS) {
 	return !auton_stopped();
 }
 
-bool wait_for_bottom(uint32_t lower_start_ms) {
+bool wait_for_bottom() {
 	auton_status("lift to bottom");
+	const uint32_t start = pros::millis();
 	while (lift_pos() < LIFT_LIMIT_BOTTOM_DEG) {
 		if (auton_stopped()) return false;
-		if (pros::millis() - lower_start_ms >= EXIT_LOWER_TIMEOUT_MS) {
-			printf("DBG lift bottom timeout actual=%.1f limit=%dms\n", lift_pos(), EXIT_LOWER_TIMEOUT_MS);
-			auton_fail("lift timeout");
-			return false;
+		if (pros::millis() - start >= EXIT_LOWER_WAIT_MS) {
+			// Continue lowering in the background while slow intake begins.
+			return true;
 		}
 		pros::delay(10);
 	}
@@ -157,13 +162,14 @@ bool wait_for_bottom(uint32_t lower_start_ms) {
 } // namespace
 
 void run_routine() {
+	// Keep this run's mode fixed even if the selector changes during a practice macro.
+	const AutonPin pin = auton_pin_get();
 	claw_grab(0);  // Start grabbing immediately and keep running until the first release.
 
 	// Red right / blue left start on +x; red left / blue right mirror their path.
 	bool use_right = on_right();
 	if (is_blue()) use_right = !use_right;
 	const Side& side = use_right ? RIGHT_SIDE : LEFT_SIDE;
-	const float turn_sign = use_right ? 1.0f : -1.0f;
 
 	set_pose(0, 0, 0);
 	lift_to_rot(SCORE_LIFT_ROT);  // Raise the lift while driving.
@@ -178,16 +184,16 @@ void run_routine() {
 	approach_goal(side);
 	wait(SCORE_SETTLE_MS);
 	if (!clamp_down()) return;
-	claw_release(0, CLAW_RELEASE_POWER);  // Keep opening through the pull-away and intake turn.
+	claw_release(0, CLAW_RELEASE_POWER);  // Keep opening while pulling away.
 	cascade_move(0);
 	wait(SCORE_RELEASE_PAUSE_MS);
 
-	// 3. Pull forward from the goal, then turn right/left 60 degrees for intake.
+	// 3. First pin ends after pulling away; Second pin continues through the intake turn.
 	// Start moving away without an automatic alignment turn at the goal.
-	drive_to(side.pull_away_x, SCORE_Y, DRIVE_SPEED, DRIVE_TIMEOUT_MS, false);
-	lift_to_rot(FIRST_SCORE_RETURN_LIFT_ROT);  // Return to intake height once clear of the first goal.
-	if (!wait_for_lift(FIRST_SCORE_RETURN_LIFT_ROT)) return;
-	claw_grab(0);  // Start intake only after reaching -70; keep grabbing until the second release.
+	drive_to(side.pull_away_x, SCORE_Y, DRIVE_SPEED, EXIT_PULL_AWAY_TIMEOUT_MS, false);
+	if (pin == AutonPin::FIRST) return;  // run_auton() stops the drivetrain and mechanisms.
+
+	const float turn_sign = use_right ? 1.0f : -1.0f;
 	wait(PAUSE_MS);
 	if (auton_stopped()) return;
 	if (!auton_odom_ready()) {
@@ -197,18 +203,17 @@ void run_routine() {
 	const float exit_heading = chassis.getPose().theta + turn_sign * EXIT_TURN_DEG;
 	face_heading(exit_heading, DRIVE_SPEED, EXIT_TURN_TIMEOUT_MS,
 	             use_right ? TurnDirection::RIGHT : TurnDirection::LEFT);
+	wait(PAUSE_MS);
 	claw_grab(0);  // Close after the intake turn; keep grabbing until the second release.
 	// Reverse travel follows (-sin heading, -cos heading); both mirrors move toward -y.
 	const float exit_radians = exit_heading * 3.14159265f / 180.0f;
 	const float exit_distance = EXIT_Y_CHANGE / -std::cos(exit_radians) + EXIT_DISTANCE_ADJUST;
 	// Aim beyond the bottom so the controller's hold band cannot stop short.
 	// cascade_move still enforces the configured bottom limit on every update.
-	const uint32_t lower_start_ms = pros::millis();
 	lift_to_rot(LIFT_LIMIT_BOTTOM_DEG + 2 * LIFT_RECORRECT_DEG);
 	back_dist(exit_distance, DRIVE_SPEED);
-	if (!wait_for_bottom(lower_start_ms)) return;
+	if (!wait_for_bottom()) return;
 
-	/* Temporarily disabled: slow intake and the remainder of the routine.
 	// 4. Keep R1 running during the slow intake and second scoring approach.
 	back_dist(EXIT_SLOW_BACK_IN, EXIT_SLOW_BACK_SPEED, EXIT_SLOW_BACK_TIMEOUT_MS);
 
