@@ -83,33 +83,49 @@ if (location.protocol === 'file:') location.replace('TitaniumSim.html');
   #toast small { display: block; font: 500 13px/1.4 system-ui; color: var(--muted); margin-top: 4px; }
   #toast.show { opacity: 1; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; color: var(--muted); }
-  /* Title menu */
-  #menu { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(10,12,16,.35), rgba(5,6,9,.88)); }
+  /* Title menu: menu list on the left, the robot you drive turning on the right. */
+  #menu { --cond: "Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", sans-serif; --gold: #f5c518;
+    position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: minmax(300px, 420px) 1fr; grid-template-rows: 1fr auto;
+    background: linear-gradient(90deg, rgba(9,10,13,.94) 0, rgba(9,10,13,.86) 30%, rgba(9,10,13,0) 62%); }
   #menu[hidden] { display: none; }
-  #menu .wrap { width: min(980px, calc(100% - 32px)); text-align: center; }
-  #menu .kicker { color: var(--muted); font-weight: 700; letter-spacing: .32em; font-size: 12px; }
-  #menu h1 { margin: 6px 0 2px; font: 900 clamp(44px, 9vw, 104px)/0.95 system-ui, -apple-system, sans-serif; letter-spacing: -.02em;
-    background: linear-gradient(180deg, #ffffff, #9fb0c4); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: 0 10px 40px rgba(0,0,0,.4); }
-  #menu h1 span { background: linear-gradient(90deg, var(--red), #f5c518 50%, var(--blue)); -webkit-background-clip: text; background-clip: text; }
-  #menu .sub { color: var(--muted); margin-bottom: 30px; font-size: 14px; }
-  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-  .mode { text-align: left; padding: 20px 20px 18px; border-radius: 16px; background: rgba(20,24,31,.85); border: 1px solid rgba(255,255,255,.1); transition: transform .12s, border-color .12s, background .12s; }
-  .mode:hover, .mode.sel { transform: translateY(-3px); border-color: #f5c518; background: rgba(30,35,44,.95); }
-  .mode b { display: block; font-size: 20px; margin-bottom: 6px; } .mode small { color: var(--muted); font-size: 13px; line-height: 1.45; display: block; }
-  .mode .k { float: right; color: var(--muted); font: 700 12px ui-monospace, monospace; border: 1px solid #48525f; border-radius: 6px; padding: 1px 7px; }
-  .robots { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 0 0 16px; }
-  .robots .rlabel { flex-basis: 100%; color: var(--muted); font: 700 11px system-ui; letter-spacing: .2em; }
-  .rcard { flex: 0 1 300px; text-align: left; padding: 11px 14px; border-radius: 12px; background: rgba(20,24,31,.7); border: 1px solid rgba(255,255,255,.1); transition: border-color .12s, background .12s; }
-  .rcard b { display: block; font-size: 15px; } .rcard small { color: var(--muted); font-size: 12px; line-height: 1.4; display: block; margin-top: 2px; }
-  .rcard:hover { border-color: rgba(245,197,24,.6); }
-  .rcard.on { border-color: #f5c518; background: rgba(40,36,18,.9); }
-  .rcard.on b::after { content: ' ✓'; color: #f5c518; }
-  .rcard.soon { opacity: .55; border-style: dashed; cursor: default; }
-  #menu .opts { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 22px; align-items: end; }
-  #menu .opts label.f { flex: 0 0 200px; text-align: left; }
-  #menu .hint { margin-top: 18px; color: var(--muted); font-size: 12px; }
-  #menu .hint a { color: var(--text); }
-  #menu #appHint + .hint { margin-top: 6px; }
+  #menu .side { padding: 40px 0 0 48px; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+  #menu .season { color: var(--muted); font: 600 14px/1 var(--cond); letter-spacing: .04em; }
+  #menu h1 { margin: 8px 0 28px; font: 800 clamp(56px, 8vw, 92px)/.86 var(--cond); letter-spacing: -.01em; text-transform: uppercase; color: #f3f1ea; }
+  #menu h1 em { font-style: normal; color: var(--gold); }
+  .mlist { display: flex; flex-direction: column; gap: 2px; } .mlist[hidden] { display: none; }
+  .mi { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 7px 16px 7px 18px; margin-left: -18px; width: 320px; border-radius: 8px;
+    font: 700 26px/1.1 var(--cond); text-transform: uppercase; letter-spacing: .01em; color: #8b929c; border-left: 4px solid transparent; }
+  .mi .k { margin-left: auto; font: 600 12px/1 ui-monospace, monospace; color: #5d646e; }
+  .mi:hover, .mi.sel { color: #f3f1ea; background: rgba(255,255,255,.06); }
+  .mi.sel { border-left-color: var(--gold); }
+  #mDesc { margin: 18px 0 0; max-width: 320px; color: var(--muted); font-size: 13px; min-height: 40px; }
+  #mSettings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 14px; max-width: 420px; padding-right: 16px; }
+  #mSettings[hidden], #mOnline[hidden] { display: none; }
+  #mOnline { display: flex; flex-direction: column; gap: 12px; max-width: 320px; }
+  #mOnline .big { font: 700 20px/1 var(--cond); text-transform: uppercase; padding: 12px 16px; background: #1b1f26; border-color: #333a44; text-align: left; }
+  #mOnline .big:hover, #mOnline .back:hover { background: #2a303a; }
+  #mOnline .go { background: var(--gold); border-color: var(--gold); color: #111; } #mOnline .go:hover { background: #ffd84a; }
+  .jrow { display: flex; gap: 8px; } .jrow[hidden] { display: none; } .jrow button { font: 700 18px/1 var(--cond); text-transform: uppercase; padding: 0 18px; background: #1b1f26; border-color: #333a44; }
+  #nCode { flex: 1; min-width: 0; background: #0f1216; color: #f3f1ea; border: 1px solid #333a44; border-radius: 8px; padding: 10px 12px; font: 700 22px/1 ui-monospace, monospace; letter-spacing: .3em; text-transform: uppercase; }
+  #nStatus { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+  #nStatus .code { color: var(--gold); font: 700 26px/1 ui-monospace, monospace; letter-spacing: .2em; }
+  #mOnline .back { font: 700 18px/1 var(--cond); text-transform: uppercase; padding: 9px 18px; border-left: 4px solid var(--gold); align-self: flex-start; background: #1b1f26; border-color: #333a44; border-left-color: var(--gold); }
+  #mSettings label.f { flex: none; min-width: 0; } #mSettings select { width: 100%; }
+  #mSettings select, #mSettings button { background: #1b1f26; border-color: #333a44; color: var(--text); }
+  #mSettings .back { grid-column: 1 / -1; justify-self: start; margin-top: 6px; font: 700 18px/1 var(--cond); text-transform: uppercase; padding: 9px 18px; border-left: 4px solid var(--gold); }
+  #menu .show { align-self: end; justify-self: end; margin: 0 32px 20px 0; padding: 16px 18px; width: min(400px, 100%); background: rgba(9,10,13,.88); border-radius: 10px; }
+  #rName { font: 800 38px/.95 var(--cond); text-transform: uppercase; color: #f3f1ea; }
+  #rSub { color: var(--muted); font-size: 13px; margin-top: 6px; min-height: 38px; }
+  .rnav { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .rnav button { all: unset; cursor: pointer; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; background: #1b1f26; color: #f3f1ea; font: 700 18px/1 system-ui; }
+  .rnav button:hover { background: #2a303a; }
+  .rbar { flex: 1; height: 3px; background: #2a2f37; } .rbar i { display: block; height: 100%; background: var(--gold); }
+  #rIdx { color: var(--muted); font: 600 12px/1 ui-monospace, monospace; }
+  #menu .keys { grid-column: 1 / -1; display: flex; gap: 22px; align-items: center; padding: 14px 48px; border-top: 1px solid rgba(255,255,255,.06); background: rgba(9,10,13,.9); color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+  #menu .keys kbd { font-size: 11px; min-width: 0; margin: 0 4px 0 0; border-bottom-width: 1px; }
+  #menu .hint { margin-left: auto; } #menu .hint a { color: var(--text); }
+  @media (max-width: 760px) { #menu { grid-template-columns: 1fr; grid-template-rows: 1fr auto auto; background: rgba(9,10,13,.82); }
+    #menu .side { padding: 24px 16px 0; } .mi { width: 100%; } #menu .show { justify-self: stretch; margin: 0; border-radius: 0; padding: 12px 16px; } #rName { font-size: 30px; } #menu .keys { padding: 12px 16px; } #menu .keys > span { display: none; } #mSettings { grid-template-columns: 1fr; } }
   body.menu-open #board, body.menu-open #hud, body.menu-open #status, body.menu-open #clawState, body.menu-open #auton, body.menu-open #btnHelp { display: none; }
   .tag { position: fixed; transform: translate(-50%, -100%); font: 700 11px system-ui; padding: 2px 7px; border-radius: 6px; pointer-events: none; white-space: nowrap; color: #fff; }
   .tag.red { background: rgba(214,40,40,.85); } .tag.blue { background: rgba(30,111,217,.85); }
@@ -174,35 +190,49 @@ void run_routine() {
     <tr><td>This page</td><td><kbd>?</kbd> or <kbd>F1</kbd></td></tr>
   </tbody></table>
 </div></div>
-<div id="menu"><div class="wrap">
-  <div class="kicker">VEX V5RC · OVERRIDE 2026–27</div>
-  <h1>TITANIUM <span>SIM</span></h1>
-  <div class="sub">3D physics simulator of our robot</div>
-  <div class="robots" id="robotPick"><div class="rlabel">ROBOT</div></div>
-  <div class="modes">
-    <button class="mode" data-game="free"><span class="k">1</span><b>Free Drive</b><small>Just you on the field. No timer. Practice slow grabs, match loads and smooth driving. D-pad ↓ runs your auton.</small></button>
-    <button class="mode" data-game="solo"><span class="k">2</span><b>Solo Match</b><small>A full match by yourself: 15 s auton (your routine) then 1:45 driver control.</small></button>
-    <button class="mode" data-game="ai"><span class="k">3</span><b>2v2 vs AI</b><small>Full match with an AI partner on your alliance and two AI opponents.</small></button>
-  </div>
-  <div class="opts">
+<div id="menu">
+  <div class="side">
+    <div class="season">VEX V5RC Override 2026-27 / 4787T</div>
+    <h1>Titanium<br><em>Sim</em></h1>
+    <nav class="mlist" id="mList">
+      <button class="mi mode" data-game="free" data-desc="Just you on the field, no timer. Practice slow grabs, match loads and smooth driving. D-pad down runs your auton.">Free drive<span class="k">1</span></button>
+      <button class="mi mode" data-game="solo" data-desc="A full match on your own: 15 s auton (your routine.cpp), then 1:45 of driver control.">Solo match<span class="k">2</span></button>
+      <button class="mi mode" data-game="ai" data-desc="Full match with an AI partner against two AI opponents. Pick their jobs in Settings.">2v2 vs AI<span class="k">3</span></button>
+      <button class="mi" data-act="online" data-desc="Play a 2v2 with friends over the internet. One person hosts and shares a code; empty slots are AI.">Online</button>
+      <button class="mi" data-act="settings" data-desc="Start position, AI skill and jobs, human player loads, controller.">Settings</button>
+      <button class="mi" id="mControls" data-act="controls" data-desc="Every key and button, and how to set up a controller.">Controls</button>
+    </nav>
+    <p id="mDesc"></p>
+    <div id="mOnline" hidden>
+      <button id="nHost" class="big">Host a game</button>
+      <div class="jrow" id="nJoinRow"><input id="nCode" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false"><button id="nJoin">Join</button></div>
+      <p id="nStatus">Your robot is the one shown on the right. The host's settings (start, AI) are used.</p>
+      <button id="nStart" class="big go" hidden>Start 2v2 match</button>
+      <button class="back" data-act="back">Back</button>
+    </div>
+    <div id="mSettings" hidden>
     <label class="f">Your start<select id="mStart"><option value="red1">Red 1 Toggle</option><option value="red2">Red 2 Toggle</option><option value="blue1">Blue 1 Toggle</option><option value="blue2">Blue 2 Toggle</option></select></label>
     <label class="f">AI skill<select id="mSkill"><option value="0.6">Rookie</option><option value="0.8">Regular</option><option value="1" selected>Pro (HK-level)</option></select></label>
-    <button id="mControls">Controls</button>
-  </div>
-  <div class="opts">
     <label class="f">Human player loads<select id="mHuman"><option value="cupOwn" selected>Cup + your-colour pin</option><option value="cupYellow">Cup + yellow pin</option><option value="pinOwn">Your-colour pin only</option><option value="pinYellow">Yellow pin only</option><option value="off">Nothing (off)</option></select></label>
     <label class="f">At which Loader<select id="mLoader"><option value="both" selected>Both</option><option value="left">Left (from your station)</option><option value="right">Right (from your station)</option></select></label>
     <label class="f">Match loads<select id="mLoads"><option value="real" selected>10 Cups + 10 Pins (real)</option><option value="unlimited">Unlimited (practice)</option></select></label>
-  </div>
-  <div class="opts">
     <label class="f">AI partner (2v2)<select id="mStratP"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Stacker (cascade bot, match loads)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender" selected>Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
     <label class="f">AI opponent 1<select id="mStratO1"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker">Stacker (cascade bot, match loads)</option><option value="attacker" selected>Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
     <label class="f">AI opponent 2<select id="mStratO2"><option value="auto">Random</option><option value="scorer">Scorer (intake bot)</option><option value="stacker" selected>Stacker (cascade bot, match loads)</option><option value="attacker">Toggle attacker (wedge bot)</option><option value="defender">Toggle defender (DR4B bot)</option><option value="pusher">Pusher / defense (wedge bot)</option></select></label>
     <button id="mPad" title="For USB controllers the browser does not pick up by itself">Connect controller</button>
+    <button class="back" data-act="back">Back</button>
+    </div>
   </div>
-  <div class="hint" id="appHint">Works offline. <a href="TitaniumSim.html" download="TitaniumSim.html">Download TitaniumSim.html</a> (one file, double-click to open, no internet), or install it as an app: Chrome/Edge address bar → Install, Safari → Share → Add to Dock / Home Screen.</div>
-  <div class="hint">Click a mode, press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>, or use the D-pad + A on a controller. <kbd>Esc</kbd> brings this menu back.</div>
-</div></div>
+  <div class="show" id="robotPick">
+    <div id="rName"></div>
+    <div id="rSub"></div>
+    <div class="rnav"><button id="rPrev" aria-label="Previous robot">&#8249;</button><div class="rbar"><i id="rBar"></i></div><span id="rIdx"></span><button id="rNext" aria-label="Next robot">&#8250;</button></div>
+  </div>
+  <div class="keys">
+    <span><kbd>&uarr;&darr;</kbd>Move</span><span><kbd>Enter</kbd>Select</span><span><kbd>&larr;&rarr;</kbd>Robot</span><span><kbd>Esc</kbd>Back</span>
+    <div class="hint" id="appHint">Works offline: <a href="TitaniumSim.html" download="TitaniumSim.html">download TitaniumSim.html</a> or install it as an app.</div>
+  </div>
+</div>
 <div id="toast"></div>
 <div id="tags"></div>
 <script type="module" src="js/main.js"></script>

@@ -22,6 +22,9 @@ export const TOGGLE = { axisH: WALL_H + 1.19, inset: 0.3, len: 25.8, face: 2.03 
 // the Quadrant's own colour comes up on the 2nd hit (per the team).
 // Shove needed to flip a Toggle one face, in N*s (momentum + push). Raise to make it harder.
 export const TOGGLE_EFFORT = 14;
+// Nested stacks: centre-to-centre heights (inches) of a pin resting in a cup and a cup resting on
+// a pin's collar, and the robot speed (m/s, ~8 in/s) that knocks a stack apart.
+const NEST = { pinInCup: 3.55, cupOnPin: 3.39, knock: 0.2 };
 export const toggleFaces = (quad) => (quad.startsWith('red') ? ['yellow', 'blue', 'red'] : ['yellow', 'red', 'blue']);
 export const COLORS = { red: 0xd62828, blue: 0x1e6fd9, yellow: 0xf5c518, neutral: 0x2b2b2b };
 export const GROUP = { robot: 0x0002, toggle: 0x0004, wall: 0x0008, claw: 0x0010, fixed: 0x0020 };
@@ -101,11 +104,13 @@ function pinGeo() {
 	};
 	return (PIN_GEO = { top: lathe([...PIN_COLLAR_P, ...PIN_TOP.slice(1)], 8), bottom: lathe(PIN_BOTTOM, 8) });
 }
-// Convex hull points for a profile segment (8-sided), centred on the pin centre.
-function hullPts(profile, seg = 8) {
+// Convex hull points for a profile segment (16-sided), centred on the pin centre.
+// Vertices sit on the cup ring's face centres (same angles), so the collar lands on the rim
+// instead of slipping corner-into-corner through it.
+function hullPts(profile, seg = 16) {
 	const out = [];
 	for (const [r, y] of profile) for (let k = 0; k < seg; k++) {
-		const a = ((k + 0.5) / seg) * Math.PI * 2;
+		const a = (k / seg) * Math.PI * 2;
 		out.push(Math.cos(a) * Math.max(r, 0.05) * IN, (y - PIN_H / 2) * IN, Math.sin(a) * Math.max(r, 0.05) * IN);
 	}
 	return new Float32Array(out);
@@ -158,8 +163,8 @@ export function quadrantOf(fx, fy) {
 }
 
 // Thin boxes in a ring: the walls of a goal cavity or a cup.
-function ringColliders(R, desc, rInner, thick, h, yCenter, extra) {
-	const n = 8, side = 2 * (rInner + thick) * Math.tan(Math.PI / n);
+function ringColliders(R, desc, rInner, thick, h, yCenter, extra, n = 8) {
+	const side = 2 * (rInner + thick) * Math.tan(Math.PI / n);
 	const out = [];
 	for (let j = 0; j < n; j++) {
 		const a = (j / n) * Math.PI * 2, rm = rInner + thick / 2;
@@ -552,10 +557,78 @@ export class Field {
 		}
 	}
 
+	// ---- Nested stacks -----------------------------------------------------------
+	// A pin seated in a cup, or a cup seated on a pin, locks together like the real parts do
+	// (taper inside the cup, collar on the rim), so a tall stack stands straight instead of the
+	// solver sliding each layer a little off the last until it falls. Same idea as vsim's rigid
+	// stacks, but each piece stays its own body so grabbing and scoring work as before. The lock
+	// lets go when a robot hits the stack faster than NEST.knock, a piece is picked up, or the
+	// stack tips.
+	stepNests(dt, robots) {
+		const { R, world } = this;
+		const t = (this.nestT = (this.nestT || 0) + dt);
+		const upY = (o) => { const r = o.body.rotation(); return 1 - 2 * (r.x * r.x + r.z * r.z); };
+		const free = (o) => this.has(o) && !o.held && o.body.isDynamic();
+		const robotBody = new Map(robots.map((r) => [r.body.handle, r.body]));
+		const hitFast = (o) => {
+			let fast = false;
+			const v = o.body.linvel();
+			for (let i = 0; i < o.body.numColliders() && !fast; i++) {
+				const c = o.body.collider(i);
+				const near = [];   // collect first: querying contacts inside this callback crashes Rapier
+				world.contactPairsWith(c, (c2) => { const rb = robotBody.get(c2.parent()?.handle); if (rb) near.push([c2, rb]); });
+				for (const [c2, rb] of near) {
+					const rv = rb.linvel();
+					if (!fast && Math.hypot(rv.x - v.x, rv.z - v.z) >= NEST.knock) world.contactPair(c, c2, (m) => { if (m.numContacts() > 0) fast = true; });
+				}
+			}
+			return fast;
+		};
+		// Let go: a whole connected stack at once.
+		const doomed = new Set();
+		for (const n of this.nests) {
+			if (!this.has(n.a) || !this.has(n.b)) { doomed.add(n); continue; }   // body removed: Rapier dropped the joint
+			if (!free(n.a) || !free(n.b) || upY(n.a) < 0.9 || upY(n.b) < 0.9 || hitFast(n.a) || hitFast(n.b)) doomed.add(n);
+		}
+		for (let grew = doomed.size > 0; grew;) {
+			grew = false;
+			for (const n of this.nests) if (!doomed.has(n) && [...doomed].some((d) => d.a === n.a || d.a === n.b || d.b === n.a || d.b === n.b) && free(n.a) && free(n.b)) { doomed.add(n); grew = true; }
+		}
+		for (const n of doomed) {
+			if (this.has(n.a) && this.has(n.b)) world.removeImpulseJoint(n.joint, true);
+			n.a.below = n.b.above = null;
+			n.a.unlockT = n.b.unlockT = t + 1;
+		}
+		if (doomed.size) this.nests = this.nests.filter((n) => !doomed.has(n));
+		// Lock: every 6th step, pieces at rest and seated straight on the one below.
+		if ((this.nestTick = ((this.nestTick || 0) + 1) % 6)) return;
+		const still = (o) => free(o) && upY(o) > 0.995 && !(o.unlockT > t) && Math.hypot(...Object.values(o.body.linvel())) < 0.1 && Math.hypot(...Object.values(o.body.angvel())) < 1;
+		const ready = [...this.pins, ...this.cups].filter(still);
+		for (const a of ready) {
+			if (a.below) continue;
+			const ta = a.body.translation();
+			for (const b of ready) {
+				if (b.kind === a.kind || b.above) continue;
+				const tb = b.body.translation(), dy = (ta.y - tb.y) / IN;
+				const seat = a.kind === 'pin' ? NEST.pinInCup : NEST.cupOnPin;
+				if (Math.hypot(ta.x - tb.x, ta.z - tb.z) / IN > 0.3 || Math.abs(dy - seat) > 0.35) continue;
+				// Joint frame: straight over b's axis at the current height, keeping a's spin.
+				const qb = b.body.rotation(), qa = a.body.rotation();
+				const rel = new THREE.Quaternion(qb.x, qb.y, qb.z, qb.w).invert().multiply(new THREE.Quaternion(qa.x, qa.y, qa.z, qa.w));
+				const ax = new THREE.Vector3(1, 0, 0).applyQuaternion(rel), yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-ax.z, ax.x));
+				const joint = world.createImpulseJoint(R.JointData.fixed({ x: 0, y: dy * IN, z: 0 }, yaw, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 }), b.body, a.body, true);
+				joint.setContactsEnabled(false);
+				this.nests.push({ a, b, joint });
+				a.below = b; b.above = a;
+				break;
+			}
+		}
+	}
+
 	// ---- Scoring objects ---------------------------------------------------------
 	clearObjects() {
 		for (const o of [...this.pins, ...this.cups]) { this.world.removeRigidBody(o.body); this.scene.remove(o.mesh); }
-		this.pins = []; this.cups = [];
+		this.pins = []; this.cups = []; this.nests = []; this.nextId = 0;
 	}
 
 	makePin(top, bottom, pos, quat) {
@@ -583,7 +656,7 @@ export class Field {
 			mesh.add(h);
 		}
 		this.scene.add(mesh);
-		const pin = { kind: 'pin', top, bottom, body, collider, extra, mesh, held: null };
+		const pin = { kind: 'pin', id: (this.nextId = (this.nextId || 0) + 1), top, bottom, body, collider, extra, mesh, held: null };   // id: same on every computer in an online game
 		this.pins.push(pin);
 		return pin;
 	}
@@ -592,8 +665,10 @@ export class Field {
 		const { R, world } = this;
 		const body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
 			.setCcdEnabled(true).setLinearDamping(0.3).setAngularDamping(2.5));
-		const wall = 0.1;
-		for (const d of ringColliders(R, null, CUP_R - wall, wall, CUP_H, 0, (d) => d.setDensity(500).setFriction(0.5)))
+		// Inner radius 1.4" (the ribs): the pin's lower taper (max 1.3") drops in, its collar (1.52")
+		// rests on the rim, and the cup sits on the next pin's collar taper.
+		const wall = CUP_R - 1.4;
+		for (const d of ringColliders(R, null, CUP_R - wall, wall, CUP_H, 0, (d) => d.setDensity(285).setFriction(0.5)))
 			world.createCollider(d, body);
 		world.createCollider(R.ColliderDesc.cylinder(0.05 * IN, (CUP_R - wall) * IN).setDensity(500), body);
 		// Real cup: clear half flares out to a rim, opaque dark-grey half flares to a base.
@@ -620,7 +695,7 @@ export class Field {
 		mid.rotation.x = -Math.PI / 2;
 		mesh.add(mid);
 		this.scene.add(mesh);
-		const cup = { kind: 'cup', opaqueUp, body, mesh };
+		const cup = { kind: 'cup', id: (this.nextId = (this.nextId || 0) + 1), opaqueUp, body, mesh };
 		this.cups.push(cup);
 		return cup;
 	}
@@ -673,8 +748,8 @@ export class Field {
 	// where it can legally go: a pin onto an empty goal or into a cup, a cup onto a pin (<SC3>).
 	// Where piece o (pin or cup) could legally go on a goal it's over: { g, top, surface, seatBottom }
 	// (seatBottom = height of the piece's bottom once seated), or null.
-	seatFor(o, tol = 2.5) {
-		const t = toField(o.body.translation()), cup = this.cups.includes(o);
+	seatFor(o, tol = 2.5, at = null) {   // at: look at this field spot instead of where o is
+		const t = at || toField(o.body.translation()), cup = this.cups.includes(o);
 		for (const g of this.goals) {
 			if (Math.hypot(t.fx - g.fx, t.fy - g.fy) > tol) continue;
 			let top = null, topH = -1;

@@ -30,7 +30,7 @@ export const CFG = {
 	liftDegPerSec: 1250,                // 3 green motors at full power (assumed)
 	// The grab: driving into a stack with R1 spinning pulls it in, but only slowly (team: too fast and it
 	// knocks the stack over). Relative speed in m/s.
-	grabMaxSpeed: 0.24,                 // ~9.5 in/s: under a fifth of full speed
+	grabMaxSpeed: 0.3,                  // ~12 in/s: about a fifth of full speed
 	// Old flip claw + intake geometry, used by the AI robots' designs (ai.js).
 	CLAW_TURN_VERTICAL_DEG: 25, CLAW_TURN_HORIZONTAL_DEG: 900, CLAW_TURN_DOWN_VELOCITY: 100,
 	CASCADE_INTAKE_DEG: 180, clawDegPerMotorDeg: 0.1, clawArm: 9, pinBottomAtHorizontal: 25 / 2.54 - 5.5,
@@ -126,7 +126,7 @@ export class Robot {
 		for (const s of [-1, 1]) {
 			// Flex wheels squash: a stack centred in the mouth slides in between them, an off-centre one hits one.
 			const c = world.createCollider(R.ColliderDesc.cylinder(2.3 * IN, (this.C.clawWheelR - 0.25) * IN).setFriction(0.8).setDensity(0).setCollisionGroups(cg), this.body);
-			this.clawCols.push({ c, p: [X, 3.1, s * zs] });
+			this.clawCols.push({ c, p: [X, 3.1, s * zs], roller: true });
 		}
 		const brace = world.createCollider(R.ColliderDesc.cuboid(0.25 * IN, 1.0 * IN, 3.2 * IN).setFriction(0.3).setDensity(0).setCollisionGroups(cg), this.body);
 		this.clawCols.push({ c: brace, p: [X + 2.05, 3.4, 0] });
@@ -445,6 +445,10 @@ export class Robot {
 		if (this.justReleased) this.justReleased = this.justReleased.filter((r) => r.t > 0);
 		this.releaseCool = Math.max(0, this.releaseCool - dt);
 		const spinIn = this.clawSpin < -30, lift = this.liftIn();
+		// Flex wheels spinning in pull a stack between them; stopped (or holding) they're a wall.
+		// The stack is wider than the gap between the roller columns, so solid ones shoved it aside.
+		const soft = spinIn && !this.claw;
+		for (const k of this.clawCols || []) if (k.roller && k.c.isEnabled() === soft) k.c.setEnabled(!soft);
 		if (!this.claw && !this.tipped()) {
 			// Out of a Loader: R1 spinning, cascade low enough to fit the slot, square to the wall, slow.
 			const r = this.loaderReach();
@@ -463,7 +467,7 @@ export class Robot {
 				if (this.claw || o.held || !upright(o)) continue;
 				const l = this.toLocal(new THREE.Vector3().copy(o.body.translation()));
 				const bottom = l.y - (o.kind === 'cup' ? CUP_H : PIN_H) / 2;
-				if (bottom < lift - 3.4 || bottom > lift + 2.2 || !this.inMouth(l)) continue;
+				if (bottom < lift - 3.4 || bottom > lift + 2.2 || !this.inMouth(l, 0.9)) continue;   // the spinning wheels centre it
 				if (o.kind === 'pin' && this.field.partnerOf(o)?.kind === 'cup' && this.field.partnerOf(o).body.translation().y < o.body.translation().y) continue;   // pin in a cup: the cup is what's gripped
 				if (this.field.onGoal(o)) continue;   // stacked on a goal: not ours to pull off (<SG10>)
 				// The speed it hits the rollers at decides: once knocked it's falling, not grabbable.
@@ -667,7 +671,7 @@ export class Robot {
 	// Mechanism rows of the controls page: [action, V5, Xbox, keyboard, note].
 	static controlRows(k, x) {
 		return [
-			['Claw grab spin + intake height', k('R1'), k('RB'), k('E'), 'Toggle; also sends the cascade to -70 (2" up), like opcontrol.cpp. Drive claw first into a standing stack SLOWLY (under ~6 in/s): the rollers pull it in and the spin stops by itself. Faster and you knock it over. Something stuck in the guide (a knocked-over pin) blocks the claw'],
+			['Claw grab spin + intake height', k('R1'), k('RB'), k('E'), 'Toggle; also sends the cascade to -70 (2" up), like opcontrol.cpp. Drive claw first into a standing stack slowly (under ~12 in/s): the rollers pull it in and the spin stops by itself. Faster and you knock it over. Something stuck in the guide (a knocked-over pin) blocks the claw'],
 			['Claw release spin', k('R2') + ' / ' + k('A'), k('RT') + ' / ' + k(x.A), k('Q') + ' / ' + k('F'), 'Toggle. Pushes the stack out the back (onto a goal if it\'s right over one). Lowering the stack onto a goal also lets go'],
 			['Take a match load', k('R1'), k('RB'), k('E'), 'Cascade at R1 height (it must fit under the tube), back in square to the wall, slow. Your human player drops loads in the top (10 Cups + 10 Pins per alliance, driver period only)'],
 			['Hit a Toggle', 'Drive', 'Drive', 'Drive', 'The black rubber pucks on the front arms hit it at its height. One hit = one face: back off and hit again'],

@@ -76,7 +76,7 @@ export class Dr4bBot extends Robot {
 		const col = (desc) => world.createCollider(desc.setDensity(0).setCollisionGroups(cg), this.body);
 		const X = C.clawX, cy = 0.4 + C.claw.h / 2;
 		this.clawCols = [];
-		for (const s of [-1, 1]) this.clawCols.push({ c: col(R.ColliderDesc.cylinder((C.claw.h / 2) * IN, 0.6 * IN).setFriction(0.8)), p: [C.claw.rollerX, cy, s * C.claw.rollerZ] });
+		for (const s of [-1, 1]) this.clawCols.push({ c: col(R.ColliderDesc.cylinder((C.claw.h / 2) * IN, 0.6 * IN).setFriction(0.8)), p: [C.claw.rollerX, cy, s * C.claw.rollerZ], roller: true });
 		this.clawCols.push({ c: col(R.ColliderDesc.cuboid(0.2 * IN, (C.claw.h / 2) * IN, 2.3 * IN).setFriction(0.3)), p: [X + 2.15, cy, 0] });
 		for (const s of [-1, 1]) this.clawCols.push({ c: col(R.ColliderDesc.cuboid(1.0 * IN, (C.claw.h / 2) * IN, 0.2 * IN).setFriction(0.3)), p: [X + 0.9, cy, s * 2.45] });
 		// Pincer jaws (pins and cups only): swing out when open.

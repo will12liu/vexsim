@@ -10,6 +10,7 @@ import { HumanPlayers } from './human.js';
 import { makeAuton } from './auton.js';
 import { connectV5 } from './v5serial.js';
 import { connectSwitchPad, hidSupported } from './switchhid.js';
+import { Net, snapshot, applySnapshot, smooth } from './net.js';
 
 await RAPIER.init();
 const $ = (id) => document.getElementById(id);
@@ -67,9 +68,13 @@ const humanOpts = () => { humans.load = $('mHuman').value; humans.loader = $('mL
 for (const id of ['mHuman', 'mLoader', 'mLoads']) $(id).onchange = humanOpts;
 // AI robots for 2v2: partner + two opponents. Built once, switched off outside 2v2.
 const ais = [0, 1, 2].map(() => new AIRobot(RAPIER, world, scene, field, 'red', ''));
-const active = () => (sim.game === 'ai' ? [robot, ...ais] : [robot]);
+// Online (net.js): on the host, joiners' robots take AI slots (a.taken = that remote); on a joiner,
+// netRobots are what the host sent, drawn only.
+const remotes = [];   // host: { id, conn, robotId, name, c, robot, slot }
+let netRobots = [];
+const active = () => (sim.game === 'ai' ? [robot, ...ais.map((a) => (a.taken ? a.taken.robot : a))] : sim.game === 'net' ? netRobots : [robot]);
 
-const sim = { game: 'free', menu: true, mode: 'practice', clock: 0, auton: null, autonKind: null, autonT: 0, final: null, loopAcc: 0, hist: [] };
+const sim = { game: 'free', menu: true, netTick: 0, mode: 'practice', clock: 0, auton: null, autonKind: null, autonT: 0, final: null, loopAcc: 0, hist: [] };
 const sel = () => ({ color: $('alliance').value, side: $('side').value });
 
 function toast(msg, sub) {
@@ -91,18 +96,20 @@ function setRobot(id) {
 	window.sim.robot = robot;
 	resetField();
 	renderRobotPick();
+	if (net.role === 'client') net.send({ t: 'hello', robot: id });
+	renderLobby();
 }
+// Title menu robot carousel: the one you drive turns on the right.
+const robotIds = Object.keys(ROBOTS);
 function renderRobotPick() {
-	const el = $('robotPick');
-	el.querySelectorAll('.rcard').forEach((c) => c.remove());
-	for (const [id, r] of Object.entries(ROBOTS)) {
-		const b = document.createElement('button');
-		b.className = 'rcard' + (id === robotId ? ' on' : ''); b.dataset.robot = id;
-		b.innerHTML = `<b>${r.name}</b><small>${r.sub}</small>`;
-		b.onclick = () => setRobot(id);
-		el.appendChild(b);
-	}
+	const i = robotIds.indexOf(robotId), r = ROBOTS[robotId];
+	$('rName').textContent = r.name; $('rSub').textContent = r.sub;
+	$('rIdx').textContent = `${i + 1}/${robotIds.length}`;
+	$('rBar').style.width = `${((i + 1) / robotIds.length) * 100}%`;
 }
+const stepRobot = (d) => setRobot(robotIds[(robotIds.indexOf(robotId) + d + robotIds.length) % robotIds.length]);
+$('rPrev').onclick = () => stepRobot(-1);
+$('rNext').onclick = () => stepRobot(1);
 function log(msg) {
 	const el = $('log');
 	el.textContent = (msg + '\n' + el.textContent).slice(0, 3000);
@@ -123,9 +130,23 @@ function placeAtStart() {
 	const others = ['red1', 'red2', 'blue1', 'blue2'].filter((q) => q !== $('start').value);
 	const on = sim.game === 'ai';
 	let opp = 0;
+	for (const a of ais) if (a.taken && !remotes.includes(a.taken)) dropRobot(a.taken);   // left mid-match
+	for (const m of remotes) if (m.robot && !on) { m.robot.body.setEnabled(false); m.robot.mesh.visible = false; }
+	// Online joiners take slots in this order: an opponent, your partner, the other opponent.
+	const order = [0, 1, 2].sort((i, j) => (others[i].slice(0, 3) === robot.alliance.slice(0, 3)) - (others[j].slice(0, 3) === robot.alliance.slice(0, 3)));
+	[order[0], order[2], order[1]].forEach((slot, k) => { if (remotes[k]) remotes[k].slot = slot; });
 	ais.forEach((a, i) => {
 		const q = others[i];
 		a.alliance = q.startsWith('red') ? 'red' : 'blue';
+		const rm = on && remotes.find((r) => r.slot === i);
+		a.taken = rm || null;
+		if (rm) {
+			a.body.setEnabled(false); a.mesh.visible = false; a.place(200 + i * 40, 200, 0);
+			if (!rm.robot) rm.robot = new ROBOTS[rm.robotId].cls(RAPIER, world, scene, field);
+			rm.robot.alliance = a.alliance; rm.robot.body.setEnabled(true); rm.robot.mesh.visible = true;
+			placeAt(rm.robot, q);
+			return;
+		}
 		const partner = a.alliance === robot.alliance;
 		let st = $(partner ? 'mStratP' : opp++ ? 'mStratO2' : 'mStratO1').value;
 		if (st === 'auto') { const keys = Object.keys(STRATEGIES); st = keys[Math.floor(Math.random() * keys.length)]; }
@@ -142,7 +163,7 @@ function placeAtStart() {
 
 function resetField() {
 	stopAuton();
-	for (const r of [robot, ...ais]) r.hopper = r.claw = r.clawExtraPiece = null;
+	for (const r of [robot, ...ais, ...remotes.map((m) => m.robot).filter(Boolean)]) r.hopper = r.claw = r.clawExtraPiece = null;
 	field.reset();
 	placeAtStart();
 	sim.final = null; sim.hist = [];
@@ -185,29 +206,152 @@ function startGame(game) {
 	if (game === 'free') { resetField(); practice(); } else startMatch();
 	toast({ free: 'FREE DRIVE', solo: 'SOLO MATCH', ai: '2v2 vs AI' }[game], 'The view follows your robot · drag to look elsewhere · scroll to walk');
 }
-function showMenu() { stopAuton(); sim.menu = true; $('menu').hidden = false; document.body.classList.add('menu-open'); $('mStart').value = $('start').value; menuSel = -1; markMenu(); }
-const modeBtns = [...document.querySelectorAll('.mode')];
-let menuSel = -1;
-const markMenu = () => modeBtns.forEach((b, i) => b.classList.toggle('sel', i === menuSel));
-modeBtns.forEach((b) => (b.onclick = () => startGame(b.dataset.game)));
-$('mControls').onclick = () => showControls(true);
+function showMenu() { stopAuton(); sim.menu = true; $('menu').hidden = false; document.body.classList.add('menu-open'); $('mStart').value = $('start').value; showSettings(false); markMenu(0); }
+const menuItems = [...document.querySelectorAll('#mList .mi')];
+let menuSel = 0;
+function markMenu(i) {
+	menuSel = (i + menuItems.length) % menuItems.length;
+	menuItems.forEach((b, k) => b.classList.toggle('sel', k === menuSel));
+	$('mDesc').textContent = menuItems[menuSel].dataset.desc;
+}
+// Settings / Online replace the list until Back.
+function showPanel(id) {
+	for (const k of ['mSettings', 'mOnline']) $(k).hidden = k !== id;
+	$('mList').hidden = $('mDesc').hidden = !!id;
+}
+const showSettings = (on) => showPanel(on ? 'mSettings' : null);
+const panelOpen = () => !$('mSettings').hidden || !$('mOnline').hidden;
+function pickMenu(b) {
+	document.activeElement?.blur?.();   // a focused button would take Enter again
+	if (b.dataset.game) startGame(b.dataset.game);
+	else if (b.dataset.act === 'settings') showPanel('mSettings');
+	else if (b.dataset.act === 'online') showPanel('mOnline');
+	else if (b.dataset.act === 'controls') showControls(true);
+}
+menuItems.forEach((b, i) => { b.onclick = () => pickMenu(b); b.onmouseenter = () => markMenu(i); });
+document.querySelectorAll('#menu .back').forEach((b) => (b.onclick = () => showPanel(null)));
 $('btnMenu').onclick = () => { $('btnMenu').blur(); showMenu(); };
 addEventListener('keydown', (e) => {
-	if (!sim.menu || e.target.closest?.('select')) return;
+	if (!sim.menu || !$('controls').hidden || e.target.closest?.('select, input')) return;
 	const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code);
-	if (i >= 0) startGame(modeBtns[i].dataset.game);
-	if (e.code === 'Enter' && menuSel >= 0) startGame(modeBtns[menuSel].dataset.game);
+	if (i >= 0) startGame(menuItems[i].dataset.game);
+	if (e.code === 'Enter' && !panelOpen()) pickMenu(menuItems[menuSel]);
+	// Arrows also reach menuPad as the D-pad, but a quick tap can fall between polls: act here and
+	// mark it held so menuPad doesn't step twice.
+	const dir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[e.code];
+	if (!dir) return;
+	e.preventDefault();
+	if (dir === 'left' || dir === 'right') { if (!e.repeat) stepRobot(dir === 'left' ? -1 : 1); }
+	else if (!panelOpen()) markMenu(menuSel + (dir === 'up' ? -1 : 1));
+	sim.menuPrev = { ...sim.menuPrev, [dir]: true };
 });
-// Controller on the menu: D-pad / stick moves the highlight, A (either layout) picks.
+markMenu(0);
+// Controller on the menu: D-pad / stick up-down moves the highlight, left-right swaps robot, A (either layout) picks, B backs out of Settings.
 function menuPad(c) {
 	const p = sim.menuPrev || {};
-	const left = c.Left || c.Up || c.rx < -60, right = c.Right || c.Down || c.rx > 60;
-	if (left && !p.left) { menuSel = (menuSel + 2) % 3; markMenu(); }
-	if (right && !p.right) { menuSel = (menuSel + 1) % 3; markMenu(); }
-	const pick = c.A || c.B;
-	if (pick && !p.pick && menuSel >= 0 && $('controls').hidden) startGame(modeBtns[menuSel].dataset.game);
-	sim.menuPrev = { left, right, pick };
+	if (document.activeElement?.tagName === 'INPUT') { sim.menuPrev = {}; return; }   // typing a join code
+	const up = c.Up || c.ly > 60, down = c.Down || c.ly < -60, left = c.Left || c.rx < -60, right = c.Right || c.rx > 60;
+	const free = $('controls').hidden && !panelOpen();
+	if (free && up && !p.up) markMenu(menuSel - 1);
+	if (free && down && !p.down) markMenu(menuSel + 1);
+	if (left && !p.left) stepRobot(-1);
+	if (right && !p.right) stepRobot(1);
+	if (c.A && !p.a && free) pickMenu(menuItems[menuSel]);
+	if (c.B && !p.b && panelOpen()) showPanel(null);
+	sim.menuPrev = { up, down, left, right, a: c.A, b: c.B };
 }
+
+// ---- Online (net.js) -----------------------------------------------------------------
+const net = new Net({ data: onNet, leave: onLeave });
+let sentKey = '', sentAt = 0;
+function sendInput(c, now) {   // joiner: controller to the host when it changes (and 4x a second anyway)
+	const key = JSON.stringify(c);
+	if (key === sentKey && now - sentAt < 250) return;
+	sentKey = key; sentAt = now; net.send({ t: 'in', c });
+}
+const lobbyNames = () => ['Player 1 (host): ' + ROBOTS[robotId].name, ...remotes.map((r) => r.name)];
+function renderLobby() {
+	if (net.role !== 'host') return;
+	$('nStatus').innerHTML = `Code <b class="code">${net.code}</b><br>${lobbyNames().join('<br>')}${remotes.length ? '' : '<br>Waiting for players: give them the code.'}`;
+	$('nStart').hidden = !remotes.length;
+	net.broadcast({ t: 'lobby', players: lobbyNames() });
+}
+function dropRobot(rm) { if (!rm.robot) return; world.removeRigidBody(rm.robot.body); scene.remove(rm.robot.mesh); rm.robot = null; }
+// Same order as active() in a 2v2: host, then the three slots.
+const roster = () => [
+	{ key: net.id(), robot: robotId, alliance: robot.alliance, name: 'Player 1: ' + ROBOTS[robotId].name },
+	...ais.map((a, i) => (a.taken ? { key: a.taken.id, robot: a.taken.robotId, alliance: a.alliance, name: a.taken.name }
+		: { key: 'ai' + i, ai: a.strategy, slot: i, alliance: a.alliance, name: a.label })),
+];
+function onNet(conn, m) {
+	if (net.role === 'host') {
+		let rm = remotes.find((r) => r.conn === conn);
+		if (m.t === 'hello') {
+			if (!rm) {
+				if (remotes.length >= 3) { conn.send({ t: 'full' }); return; }
+				rm = { id: conn.peer, conn, c: { ly: 0, rx: 0 }, robot: null, slot: -1 };
+				remotes.push(rm);
+			}
+			const id = ROBOTS[m.robot] ? m.robot : DEFAULT_ROBOT;
+			if (rm.robotId !== id) dropRobot(rm);
+			rm.robotId = id; rm.name = `Player ${remotes.indexOf(rm) + 2}: ${ROBOTS[id].name}`;
+			renderLobby();
+		} else if (m.t === 'in' && rm) rm.c = m.c;
+		return;
+	}
+	if (m.t === 'lobby') $('nStatus').innerHTML = `Joined <b class="code">${net.code}</b><br>${m.players.join('<br>')}<br>Waiting for the host to start.`;
+	else if (m.t === 'full') $('nStatus').textContent = 'That game is full (4 robots).';
+	else if (m.t === 'start') startNetGame(m.roster);
+	else if (m.t === 's' && sim.game === 'net') applySnapshot(m, field, netRobots, sim);
+}
+function onLeave(conn) {
+	if (net.role === 'host') {
+		const rm = remotes.find((r) => r.conn === conn);
+		if (!rm) return;
+		remotes.splice(remotes.indexOf(rm), 1);
+		rm.c = { ly: 0, rx: 0 };   // in a match its robot stops where it is until the next reset
+		if (!ais.some((a) => a.taken === rm)) dropRobot(rm);
+		toast(`${rm.name} left`);
+		renderLobby();
+	} else { toast('Lost the host', 'Back to the menu'); setTimeout(() => location.reload(), 1500); }
+}
+// Joiner: build the host's line-up and draw what it sends.
+function startNetGame(list) {
+	const me = net.id();
+	for (const r of [robot, ...ais]) r.hopper = r.claw = r.clawExtraPiece = r.pincer = r.pincerExtra = null;
+	for (const a of ais) a.mesh.visible = false;
+	field.clearObjects();
+	for (const r of netRobots) if (r !== robot && !ais.includes(r)) { world.removeRigidBody(r.body); scene.remove(r.mesh); }
+	netRobots = list.map((e) => {
+		let r = robot;   // our own entry: the robot this player picked, already built
+		if (e.key !== me && e.ai) { r = ais[e.slot]; r.setStrategy(e.ai); r.mesh.visible = true; }
+		else if (e.key !== me) r = new ROBOTS[e.robot].cls(RAPIER, world, scene, field);
+		r.alliance = e.alliance; r.netName = e.name; r.netT = null; r.netHad = false;
+		return r;
+	});
+	const mine = list.find((e) => e.key === me);
+	$('alliance').value = mine.alliance;
+	sim.game = 'net'; sim.menu = false; $('menu').hidden = true; document.body.classList.remove('menu-open');
+	toast('ONLINE MATCH', `You are on ${mine.alliance} · Esc leaves the game`);
+}
+$('nHost').onclick = async () => {
+	$('nStatus').textContent = 'Going online...';
+	try { await net.host(); renderLobby(); $('nHost').hidden = $('nJoinRow').hidden = true; }
+	catch (e) { $('nStatus').textContent = 'Could not go online (' + (e.type || e.message) + '). Needs internet.'; net.close(); }
+};
+$('nJoin').onclick = async () => {
+	const code = $('nCode').value.trim();
+	if (code.length !== 4) { $('nStatus').textContent = 'Enter the 4-letter code from the host.'; return; }
+	$('nStatus').textContent = 'Connecting...';
+	try { await net.join(code); net.send({ t: 'hello', robot: robotId }); $('nHost').hidden = $('nJoinRow').hidden = true; }
+	catch (e) { $('nStatus').textContent = e.message || 'Could not connect.'; net.close(); }
+};
+$('nCode').onkeydown = (e) => { if (e.key === 'Enter') $('nJoin').click(); };
+$('nStart').onclick = () => {
+	startGame('ai');
+	net.broadcast({ t: 'start', roster: roster() });
+	net.broadcast(snapshot(field, active(), sim, true));
+};
 
 // ---- UI ------------------------------------------------------------------------------
 $('btnMatch').onclick = () => { startMatch(); $('btnMatch').blur(); };
@@ -314,6 +458,7 @@ addEventListener('keydown', (e) => {
 	if (e.target.closest?.('textarea, input, select')) return;
 	if (e.key === '?' || e.code === 'F1') { e.preventDefault(); showControls($('controls').hidden); }
 	if (e.code === 'Escape' && input.setup) { input.cancelSetup(); return; }
+	if (e.code === 'Escape' && sim.game === 'net') { location.reload(); return; }   // shortcut: leaving reloads to a clean offline sim
 	if (e.code === 'Escape') { if (!$('controls').hidden) showControls(false); else if (sim.menu && sim.game) { sim.menu = false; $('menu').hidden = true; document.body.classList.remove('menu-open'); } else showMenu(); }
 });
 setCam('driver');
@@ -351,10 +496,11 @@ function aimHead(base, robotPos, dt) {
 function updateCamera(dt) {
 	stepHead(dt);
 	const p = robot.pos();
-	if (sim.menu) {   // slow fly-around behind the title
-		const a = performance.now() / 9000;
-		camera.position.set(Math.cos(a) * 3.1, 1.7, Math.sin(a) * 3.1);
-		camera.lookAt(0, 0, 0);
+	if (sim.menu) {   // the robot you drive turns slowly on the right of the title menu
+		const a = performance.now() / 7000, d = new THREE.Vector3(-Math.cos(a), 0, -Math.sin(a));
+		camera.position.set(p.x - d.x * 1.6, 0.9, p.z - d.z * 1.6);   // high enough to see over the wall rail
+		const side = innerWidth > 760 ? 0.42 : 0;   // aim left of the robot so it sits right of the menu
+		camera.lookAt(p.x + d.z * side, 0.1, p.z - d.x * side);
 		return;
 	}
 	const red = $('alliance').value === 'red', s = red ? 1 : -1;
@@ -441,6 +587,10 @@ function control(c) {
 		side: (sd) => { if (!sim.auton) setSide(sd); },
 	});
 	else robot.op.prev = { ...ctrl };
+	if (sim.game === 'ai') for (const a of ais) if (a.taken) {   // online players: their controller, driver period only
+		const r = a.taken.robot, c2 = a.taken.c;
+		if (driverMode) r.opcontrol(c2, {}); else r.op.prev = { ...c2 };
+	}
 }
 function physicsStep() {
 	sim.hist.push({ t: robot.t, c: latest });
@@ -462,26 +612,30 @@ function physicsStep() {
 		} else if (sim.clock <= 0 && sim.mode === 'driver') {
 			sim.mode = 'ended'; sim.endT = robot.t;
 			robot.leftCmd = robot.rightCmd = 0; robot.mechStopAll();
-			for (const a of ais) a.stop();
+			for (const a of ais) { a.stop(); if (a.taken) { a.taken.robot.leftCmd = a.taken.robot.rightCmd = 0; a.taken.robot.mechStopAll(); } }
 		}
 	}
 	// <SC1>: scored once things settle, here 3 s after the buzzer.
 	if (sim.mode === 'ended' && !sim.final && robot.t - sim.endT > 3) { sim.final = field.score(mid()); log(`FINAL red ${sim.final.red} / blue ${sim.final.blue}`); }
 	const live = sim.mode === 'auton' || sim.mode === 'driver';
-	for (const a of ais) if (sim.game === 'ai') { a.clockLeft = sim.mode === 'driver' ? sim.clock : null; a.period = sim.mode; if (live) a.think(DT, active()); else a.stop(); }
+	for (const a of ais) if (sim.game === 'ai' && !a.taken) { a.clockLeft = sim.mode === 'driver' ? sim.clock : null; a.period = sim.mode; if (live) a.think(DT, active()); else a.stop(); }
 	for (const r of active()) r.step(DT);
 	humans.step(DT, robot.alliance, sim.mode === 'practice' || sim.mode === 'driver');
 	field.stepLoaders(DT);
 	field.stepToggles(DT, active());
+	field.stepNests(DT, active());
 	world.step();
 	clampVelocities(field.pins); clampVelocities(field.cups);
 	for (const r of active()) { r.clampVel(); r.holdAtToggle(); }
+	// Online host: ~30 updates a second to the joiners, everything every 4 s.
+	if (net.role === 'host' && sim.game === 'ai' && net.conns.length && ++sim.netTick % 4 === 0) net.broadcast(snapshot(field, active(), sim, sim.netTick % 480 === 0));
 }
 function tick(now) {
 	const frameDt = Math.min(0.1, (now - last) / 1000);
 	last = now; acc += frameDt;
 	const c = input.poll();
 	if (sim.menu) { menuPad(c); acc = 0; }
+	else if (sim.game === 'net') { sendInput(c, now); smooth([...field.pins, ...field.cups, ...netRobots], frameDt); acc = 0; }
 	else { latest = c; while (acc >= DT) { acc -= DT; physicsStep(); } }
 	field.syncMeshes();
 	for (const r of active()) r.syncMesh(frameDt);
@@ -503,13 +657,15 @@ function mid() { const m = { red: 0, blue: 0 }; for (const r of active()) if (r.
 // Name tags over the AI robots.
 const tagEls = ais.map(() => { const d = document.createElement('div'); d.className = 'tag'; $('tags').appendChild(d); return d; });
 function updateTags() {
-	ais.forEach((a, i) => {
-		const el = tagEls[i], v = a.pos().add(new THREE.Vector3(0, 24 * IN, 0)).project(camera);
-		const show = sim.game === 'ai' && !sim.menu && v.z < 1;
+	const tagged = sim.game === 'net' ? netRobots.filter((r) => r !== robot) : ais.map((a) => (a.taken ? a.taken.robot : a));
+	tagEls.forEach((el, i) => {
+		const a = tagged[i];
+		const v = a && a.pos().add(new THREE.Vector3(0, 24 * IN, 0)).project(camera);
+		const show = a && (sim.game === 'ai' || sim.game === 'net') && !sim.menu && v.z < 1;
 		el.style.display = show ? 'block' : 'none';
 		if (!show) return;
 		const r = $('view').getBoundingClientRect();
-		el.className = 'tag ' + a.alliance; el.textContent = a.label;
+		el.className = 'tag ' + a.alliance; el.textContent = a.netName || ais.find((x) => x.taken?.robot === a)?.taken.name || a.label;
 		el.style.left = ((v.x + 1) / 2) * r.width + 'px'; el.style.top = ((1 - v.y) / 2) * r.height + 'px';
 	});
 }
